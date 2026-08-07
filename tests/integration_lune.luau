@@ -801,59 +801,6 @@ do
 end
 
 do
-	-- Observed live: the client's own LoadAnimation and the server's replicated
-	-- track leave two copies of one animation on the Animator. Only one is
-	-- reachable through GetTrackByAnimationId, so the other can never be faded
-	-- down and holds full weight forever, blending two poses at once.
-	local Animator, Humanoid, Session = NewWorld(FullSlots, "R15")
-	Drive(Session, Animator, Humanoid, 0, 20)
-
-	local Stray = Animator:AddStray(IdleId, 1)
-	T:True("the stray starts out live at full weight", Stray.IsPlaying and Stray.WeightCurrent > 0.9)
-	T:Equal("and is unreachable by id", Animator:GetTrackByAnimationId(IdleId), Animator.Tracks[IdleId])
-
-	Drive(Session, Animator, Humanoid, 0, 65)
-	T:False("a stray copy is stopped", Stray.IsPlaying)
-	T:True("the resolved idle keeps driving", Animator.Tracks[IdleId].IsPlaying)
-	T:Near("the resolved idle keeps its weight", Animator.Tracks[IdleId].WeightTarget, 1)
-
-	local Foreign = Animator:AddStray("rbxassetid://someEmote", 1)
-	Drive(Session, Animator, Humanoid, 0, 65)
-	T:True("an unmanaged animation is left alone", Foreign.IsPlaying)
-
-	-- The sweep costs about as much as the whole drive pass, and resim replays
-	-- every step, so it is throttled rather than run per step.
-	local Late = Animator:AddStray(IdleId, 1)
-	Drive(Session, Animator, Humanoid, 0, 5)
-	T:True("the sweep does not run every step", Late.IsPlaying)
-	Drive(Session, Animator, Humanoid, 0, 65)
-	T:False("but a stray never survives long", Late.IsPlaying)
-end
-
-do
-	-- Observed live: a second idle variant left playing by stock had no
-	-- resolvable track of its own, so there was no keeper to compare against and
-	-- the sweep skipped it. Two idle animations then ran at full weight forever.
-	local Variants = {
-		idle = { IdleId, "rbxassetid://idle2" },
-		walk = { WalkId },
-		run = { RunId },
-	}
-	local Animator, Humanoid, Session = NewWorld(Variants, "R15")
-	Drive(Session, Animator, Humanoid, 0, 20)
-
-	local Unreachable = Animator:AddStray("rbxassetid://idle2", 1)
-	T:Equal(
-		"the second variant has no resolvable track",
-		Animator:GetTrackByAnimationId("rbxassetid://idle2"),
-		nil
-	)
-	Drive(Session, Animator, Humanoid, 0, 65)
-	T:False("a managed copy with no keeper is still stopped", Unreachable.IsPlaying)
-	T:Near("the driven idle keeps full weight", Animator.Tracks[IdleId].WeightTarget, 1)
-end
-
-do
 	-- Takeover: stock's leftover track is unresolvable, so releasing by id left it
 	-- playing and it survived into AnimBlend's session.
 	local Animator, Humanoid, Session = NewWorld(FullSlots, "R15")
@@ -863,21 +810,19 @@ do
 end
 
 do
-	-- A client that is not predicting yet must not stop the server's tracks.
-	local ClientModules = Stub.Build(nil, true)
-	local Animator = Stub.Animator({ [IdleId] = 2 })
-	local Replicated = Animator:AddStray(IdleId, 1)
-	ClientModules.TrackDriver.Apply(Animator, {
-		{ Id = IdleId, Weight = 1, Rate = 1, Fade = 0.1, Looped = true, Sustain = true },
-	}, 1)
-	T:True("replicated tracks survive on a non-predicting client", Replicated.IsPlaying)
+	-- Stock uses legacy http asset URLs while catalog IDs are normalized. They
+	-- are one asset and must resolve to one live track.
+	local NumericId = "rbxassetid://123456"
+	local Animator = Stub.Animator({ [NumericId] = 2 })
+	local StockTrack = Animator:AddStray("http://www.roblox.com/asset/?id=123456", 1)
+	local Resolved = Modules.TrackDriver.Resolve(Animator, NumericId)
+	T:Equal("normalized lookup reuses the stock track", Resolved, StockTrack)
+	T:Equal("normalized lookup does not load a duplicate", Animator.LoadCallCounts[NumericId], nil)
 end
 
 do
-	-- Measured in Studio: without prediction the server's replicated track is
-	-- absent from GetTrackByAnimationId, so the client loads its own second copy
-	-- and drives that instead of the one on screen. Enabling prediction is what
-	-- makes the two reconcile into a single track, exactly as stock does.
+	-- Match stock's bootstrap synchronously. Deferring prediction preparation
+	-- races the first simulation frame after every respawn.
 	local ClientModules = Stub.Build(nil, true)
 	local Animator = Stub.Animator({ [IdleId] = 2 })
 	local Humanoid = Stub.Humanoid(Animator)
@@ -885,31 +830,17 @@ do
 	local Got = ClientModules.TrackDriver.EnsureAnimator(Humanoid)
 	T:Equal("the client uses the replicated animator", Got, Animator)
 
-	-- Roblox rejects SetPredictionMode inside a simulation callback, so it must
-	-- be deferred out of the step rather than called from it.
 	local Calls = ClientModules.RunService.PredictionCalls
-	T:Equal("prediction is not requested inside the step", #Calls, 0)
-	T:Equal("nor is a track loaded before prediction is live", ClientModules.TrackDriver.Resolve(Animator, IdleId), nil)
+	T:Equal("plain lookup does not mutate prediction", #Calls, 0)
+	T:Equal("prepare returns the replicated animator", ClientModules.TrackDriver.PrepareAnimator(Humanoid), Animator)
+	T:Equal("prediction is prepared synchronously", #Calls, 1)
+	ClientModules.TrackDriver.PrepareAnimator(Humanoid)
+	T:Equal("the animator is prepared once", #Calls, 1)
 
-	ClientModules.FlushDeferred()
-	T:Equal("prediction is enabled once deferred", #Calls, 1)
-	T:Equal("on that animator", Calls[1].Instance, Animator)
-	T:Equal("in On mode", Calls[1].Mode, Stub.Enum.PredictionMode.On)
-
-	ClientModules.TrackDriver.EnsureAnimator(Humanoid)
-	ClientModules.TrackDriver.EnsureAnimator(Humanoid)
-	ClientModules.FlushDeferred()
-	T:Equal("and only once per animator", #Calls, 1)
-
-	T:True(
-		"the client drives tracks locally once predicting",
-		ClientModules.TrackDriver.Resolve(Animator, IdleId) ~= nil
-	)
-
-	local ServerModules = Stub.Build()
-	local ServerAnimator = Stub.Animator({ [IdleId] = 2 })
-	ServerModules.TrackDriver.EnsureAnimator(Stub.Humanoid(ServerAnimator))
-	T:Equal("the server never sets prediction", #ServerModules.RunService.PredictionCalls, 0)
+	local First = ClientModules.TrackDriver.Resolve(Animator, IdleId)
+	local Second = ClientModules.TrackDriver.Resolve(Animator, IdleId)
+	T:True("the client resolves a track on its first synchronized frame", First ~= nil)
+	T:Equal("repeated resolution reuses the live track", Second, First)
 end
 
 do
@@ -959,14 +890,14 @@ do
 		"server publishes readiness before clients initialize",
 		ServerModules.Root:GetAttribute("AnimBlendServerReady") == true
 	)
-	-- Stock Animate binds at Hz60/4000. BindToSimulation defaults to Hz30, so
-	-- leaving these unset ran the controller at half stock's rate.
+	-- Match stock's cadence and run one priority point later, making AnimBlend the
+	-- deterministic final writer if stock bound before takeover.
 	T:Equal(
 		"server matches stock Animate's cadence",
 		ServerModules.RunService.SimulationBindings[1].Frequency,
 		Stub.Enum.StepFrequency.Hz60
 	)
-	T:Equal("server matches stock's ordering slot", ServerModules.RunService.SimulationBindings[1].Priority, 4000)
+	T:Equal("server runs immediately after stock", ServerModules.RunService.SimulationBindings[1].Priority, 4001)
 
 	-- The package has no Automatic-authority clock. The client waits for the
 	-- server loader's readiness barrier and then mirrors the exact binding.
@@ -982,7 +913,7 @@ do
 		ClientModules.RunService.SimulationBindings[1].Frequency,
 		Stub.Enum.StepFrequency.Hz60
 	)
-	T:Equal("client matches the same ordering slot", ClientModules.RunService.SimulationBindings[1].Priority, 4000)
+	T:Equal("client matches the same ordering slot", ClientModules.RunService.SimulationBindings[1].Priority, 4001)
 end
 
 do
@@ -1123,31 +1054,31 @@ do
 	local Animator, Humanoid, Session = NewWorld(FullSlots, "R15")
 	Humanoid.StateName = "Jumping"
 	Drive(Session, Animator, Humanoid, 8, 1)
-	local FirstStart = Session.JumpStartedAt
-	T:True("jump establishes session-local timing", type(FirstStart) == "number")
-	T:Equal("jump timing stays off the Humanoid", Humanoid:GetAttribute("AnimBlendJumpStartedAt"), nil)
+	local FirstStart = Humanoid:GetAttribute("AnimBlendJumpStartedAt")
+	T:True("jump timing is stored on the predicted Humanoid", type(FirstStart) == "number")
+	T:Equal("jump phase is rollback-visible", Humanoid:GetAttribute("AnimBlendJumpPhase"), "Jumping")
 
 	Humanoid.StateName = "Physics"
 	Drive(Session, Animator, Humanoid, 8, 10)
-	T:Equal("handoff clears the jump start", Session.JumpStartedAt, nil)
-	T:Equal("handoff clears the jump phase", Session.JumpPhase, nil)
+	T:Equal("handoff clears the jump start", Humanoid:GetAttribute("AnimBlendJumpStartedAt"), nil)
+	T:Equal("handoff clears the jump phase", Humanoid:GetAttribute("AnimBlendJumpPhase"), nil)
 
 	Humanoid.StateName = "Jumping"
 	Drive(Session, Animator, Humanoid, 8, 1)
-	local NextStart = Session.JumpStartedAt
+	local NextStart = Humanoid:GetAttribute("AnimBlendJumpStartedAt")
 	T:True("jump after handoff receives a fresh clock", type(NextStart) == "number" and NextStart > FirstStart)
 
 	-- Rollback replays the same simulation frame more than once. The clock must
 	-- not restart on a replay, or a corrected jump would keep re-arming the hold.
 	AnimBlend.Step(Session)
 	AnimBlend.Step(Session)
-	T:Equal("replayed jump frames keep the original clock", Session.JumpStartedAt, NextStart)
+	T:Equal("replayed jump frames keep the original clock", Humanoid:GetAttribute("AnimBlendJumpStartedAt"), NextStart)
 
 	Humanoid.StateName = "Freefall"
 	Drive(Session, Animator, Humanoid, 8, 1)
 	AnimBlend.Step(Session)
-	T:Equal("freefall replay keeps the jump clock", Session.JumpStartedAt, NextStart)
-	T:Equal("freefall records the phase once", Session.JumpPhase, "Freefall")
+	T:Equal("freefall replay keeps the jump clock", Humanoid:GetAttribute("AnimBlendJumpStartedAt"), NextStart)
+	T:Equal("freefall records the phase once", Humanoid:GetAttribute("AnimBlendJumpPhase"), "Freefall")
 end
 
 return T

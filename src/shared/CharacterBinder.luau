@@ -23,8 +23,6 @@ export type Session = {
 	Profile: RigProfile.Profile,
 	PartsDirty: boolean,
 	Owns: boolean,
-	JumpStartedAt: number?,
-	JumpPhase: string?,
 	RebuildQueued: boolean,
 	Conns: { RBXScriptConnection },
 	AnimateConns: { RBXScriptConnection },
@@ -45,7 +43,7 @@ CharacterBinder.Sessions = Sessions
 
 local ReleaseCharacter: (Model) -> ()
 local AttachAnimate: (Session, Instance?) -> ()
-local ResetTracks: (Session) -> ()
+local ResetTracks: (Session, number?) -> ()
 local SetSessionOwning: (Session, boolean) -> ()
 
 local function FindAnimate(Character: Model): Instance?
@@ -131,8 +129,9 @@ local function Rebuild(Session: Session)
 	local Damp = if Animate then Animate:FindFirstChild("ScaleDampeningPercent") else nil
 	Session.ScaleDamp = if Damp and Damp:IsA("NumberValue") then Damp else nil
 
-	-- Animator must originate on the server.
-	TrackDriver.EnsureAnimator(Session.Humanoid)
+	-- Animator creation stays server-only; clients synchronously prepare the
+	-- replicated Animator before the first simulation step.
+	TrackDriver.PrepareAnimator(Session.Humanoid)
 
 	if #Catalog.AllIds > 0 then
 		TrackDriver.Warm(Session.Humanoid, Catalog.AllIds)
@@ -284,8 +283,6 @@ local function ClaimCharacter(Character: Model): boolean
 		PartsDirty = false,
 		-- Stock stays live until Rebuild finishes.
 		Owns = false,
-		JumpStartedAt = nil,
-		JumpPhase = nil,
 		RebuildQueued = false,
 		Conns = Conns,
 		AnimateConns = {},
@@ -359,6 +356,9 @@ ReleaseCharacter = function(Character: Model)
 	if not Session then
 		return
 	end
+	if Session.Owns then
+		ResetTracks(Session, 0)
+	end
 	DisconnectList(Session.Conns)
 	DisconnectList(Session.AnimateConns)
 	Remove(Session)
@@ -419,12 +419,12 @@ function CharacterBinder.Get(Character: Model): Session?
 	return ByCharacter[Character]
 end
 
-ResetTracks = function(Session: Session)
+ResetTracks = function(Session: Session, Fade: number?)
 	local Animator = Session.Humanoid:FindFirstChildOfClass("Animator")
 	if not Animator then
 		return
 	end
-	TrackDriver.StopAll(Animator, Session.Catalog.AllIds, ToggleFade)
+	TrackDriver.StopAll(Animator, Session.Catalog.AllIds, Fade or ToggleFade)
 end
 
 CharacterBinder.ResetTracks = ResetTracks

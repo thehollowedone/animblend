@@ -16,7 +16,7 @@ local AnimBlend = {}
 local ServerReadyAttribute = "AnimBlendServerReady"
 local ServerReadyTimeout = 30
 local StepFrequency = Enum.StepFrequency.Hz60
-local StepPriority = 4000
+local StepPriority = 4001
 local DefaultHipHeight = 2
 local WrapWindow = 0.06
 local VariantVisible = 0.5
@@ -103,9 +103,12 @@ local function ChooseId(
 	return Desired or Current or Primary
 end
 
+local JumpStartedAttribute = "AnimBlendJumpStartedAt"
+local JumpPhaseAttribute = "AnimBlendJumpPhase"
+
 local function ClearJumpState(Session: CharacterBinder.Session)
-	Session.JumpStartedAt = nil
-	Session.JumpPhase = nil
+	Session.Humanoid:SetAttribute(JumpStartedAttribute, nil)
+	Session.Humanoid:SetAttribute(JumpPhaseAttribute, nil)
 end
 
 local function JumpElapsed(Session: CharacterBinder.Session, StateName: string): number?
@@ -114,15 +117,16 @@ local function JumpElapsed(Session: CharacterBinder.Session, StateName: string):
 	end
 
 	local Now = time()
-	local Started = Session.JumpStartedAt
-	local Phase = Session.JumpPhase
+	local Humanoid = Session.Humanoid
+	local Started = Humanoid:GetAttribute(JumpStartedAttribute)
+	local Phase = Humanoid:GetAttribute(JumpPhaseAttribute)
 
 	if StateName == "Jumping" then
 		-- New jump, not a replayed one.
 		if Phase ~= "Jumping" or type(Started) ~= "number" then
 			Started = Now
-			Session.JumpStartedAt = Started
-			Session.JumpPhase = "Jumping"
+			Humanoid:SetAttribute(JumpStartedAttribute, Started)
+			Humanoid:SetAttribute(JumpPhaseAttribute, "Jumping")
 		end
 		return math.max(Now - Started, 0)
 	end
@@ -130,7 +134,7 @@ local function JumpElapsed(Session: CharacterBinder.Session, StateName: string):
 	if StateName == "Freefall" then
 		if type(Started) == "number" then
 			if Phase ~= "Freefall" then
-				Session.JumpPhase = "Freefall"
+				Humanoid:SetAttribute(JumpPhaseAttribute, "Freefall")
 			end
 			return math.max(Now - Started, 0)
 		end
@@ -382,8 +386,8 @@ function AnimBlend.Init()
 	CharacterBinder.Start()
 	CharacterBinder.SetOwning(true)
 
-	-- Stock Animate's cadence and ordering slot: Hz60, priority 4000, so poses are
-	-- decided after gameplay has moved the character this step.
+	-- Run immediately after stock's Hz60/4000 slot. If stock already bound before
+	-- its bootstrap scripts were disabled, AnimBlend remains the final writer.
 	if IsClient then
 		RunService:BindToSimulation(StepClientSimulation, StepFrequency, StepPriority)
 	else

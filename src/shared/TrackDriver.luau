@@ -34,6 +34,7 @@ local ActionPriorities: { [Enum.AnimationPriority]: boolean } = {
 local AnimationById: { [string]: Animation } = {}
 local PreloadedIds: { [string]: boolean } = {}
 local HasGetTrackById: boolean? = nil
+local PreparedAnimators: { [Animator]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 -- Stock stores http:// asset URLs, we normalize to rbxassetid://; both resolve
 -- to the same asset.
@@ -52,27 +53,9 @@ local function AnimationForId(AnimationId: string): Animation
 	return Created
 end
 
--- Replicated tracks are unresolvable without it, so the client loads duplicates.
--- Roblox rejects SetPredictionMode inside a simulation callback, hence the defer.
-local Asked: { [Animator]: boolean } = setmetatable({}, { __mode = "k" }) :: any
-local Predicting: { [Animator]: boolean } = setmetatable({}, { __mode = "k" }) :: any
-
-local function PredictLocally(Animator: Animator)
-	if not IsClient or Asked[Animator] then
-		return
-	end
-	Asked[Animator] = true
-	task.defer(function()
-		if pcall(RunService.SetPredictionMode, RunService, Animator, Enum.PredictionMode.On) then
-			Predicting[Animator] = true
-		end
-	end)
-end
-
 function TrackDriver.EnsureAnimator(Humanoid: Humanoid): Animator?
 	local Existing = Humanoid:FindFirstChildOfClass("Animator")
 	if Existing then
-		PredictLocally(Existing)
 		return Existing
 	end
 	if IsClient then
@@ -83,17 +66,35 @@ function TrackDriver.EnsureAnimator(Humanoid: Humanoid): Animator?
 	return Created
 end
 
+-- Match Roblox's Server Authority Animate bootstrap: prediction is enabled
+-- synchronously before either peer starts loading tracks.
+function TrackDriver.PrepareAnimator(Humanoid: Humanoid): Animator?
+	local Animator = TrackDriver.EnsureAnimator(Humanoid)
+	if not Animator or not IsClient or PreparedAnimators[Animator] then
+		return Animator
+	end
+	local Ok = pcall(RunService.SetPredictionMode, RunService, Animator, Enum.PredictionMode.On)
+	if Ok then
+		PreparedAnimators[Animator] = true
+	end
+	return Animator
+end
+
 -- Never cache track handles: rollback replaces them.
 function TrackDriver.Find(Animator: Animator, AnimationId: string): AnimationTrack?
 	if HasGetTrackById == nil then
 		HasGetTrackById = type((Animator :: any).GetTrackByAnimationId) == "function"
 	end
 	if HasGetTrackById then
-		return (Animator :: any):GetTrackByAnimationId(AnimationId)
+		local Direct = (Animator :: any):GetTrackByAnimationId(AnimationId)
+		if Direct then
+			return Direct
+		end
 	end
+	local Key = AssetKey(AnimationId)
 	for _, Track in Animator:GetPlayingAnimationTracks() do
 		local Anim = Track.Animation
-		if Anim and Anim.AnimationId == AnimationId then
+		if Anim and AssetKey(Anim.AnimationId) == Key then
 			return Track
 		end
 	end
@@ -104,11 +105,6 @@ function TrackDriver.Resolve(Animator: Animator, AnimationId: string): Animation
 	local Existing = TrackDriver.Find(Animator, AnimationId)
 	if Existing then
 		return Existing
-	end
-	-- Loading before prediction is live creates the duplicate this is meant to
-	-- avoid. The server's track drives the pose for the frame or two it takes.
-	if IsClient and not Predicting[Animator] then
-		return nil
 	end
 	local Ok, Loaded = pcall(Animator.LoadAnimation, Animator, AnimationForId(AnimationId))
 	if not Ok or not Loaded then
@@ -183,59 +179,12 @@ function TrackDriver.Drive(Animator: Animator, Target: Target)
 	end
 end
 
--- A stray copy of a managed animation is unreachable through
--- GetTrackByAnimationId, so it can never be faded down and holds its weight
--- forever. Keep the resolved track, stop the rest.
-local SweepInterval = 1
-local LastSweep: { [Animator]: number } = setmetatable({}, { __mode = "k" }) :: any
-
-local function StopStrays(Animator: Animator, Targets: { Target }, Count: number)
-	-- Before prediction, every replicated track is unresolvable and legitimately
-	-- so; the server owns them. Sweeping then would fight replication.
-	if IsClient and not Predicting[Animator] then
-		return
-	end
-
-	local Managed: { [string]: boolean } = {}
-	local Keep: { [string]: AnimationTrack? } = {}
-	for Index = 1, Count do
-		local Target = Targets[Index]
-		if Target and Target.Id ~= "" then
-			local Key = AssetKey(Target.Id)
-			if not Managed[Key] then
-				Managed[Key] = true
-				Keep[Key] = TrackDriver.Find(Animator, Target.Id)
-			end
-		end
-	end
-
-	-- A copy with no resolvable keeper at all is the worst case: nothing can ever
-	-- fade it, so it holds its weight forever.
-	for _, Track in Animator:GetPlayingAnimationTracks() do
-		local Anim = Track.Animation
-		if Anim then
-			local Key = AssetKey(Anim.AnimationId)
-			if Managed[Key] and Track ~= Keep[Key] then
-				Track:Stop(0)
-			end
-		end
-	end
-end
-
 function TrackDriver.Apply(Animator: Animator, Targets: { Target }, Count: number)
 	for Index = 1, Count do
 		local Target = Targets[Index]
 		if Target and Target.Id ~= "" then
 			TrackDriver.Drive(Animator, Target)
 		end
-	end
-	-- Strays are rare once prediction is on, and this costs about as much as the
-	-- whole drive pass. Resim replays every step, so it stays off the hot path.
-	local Now = time()
-	local Last = LastSweep[Animator]
-	if not Last or Now - Last >= SweepInterval then
-		LastSweep[Animator] = Now
-		StopStrays(Animator, Targets, Count)
 	end
 end
 

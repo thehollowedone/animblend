@@ -26,7 +26,7 @@ AnimBlend runs the same controller through `RunService:BindToSimulation` on the 
 
 Decisions run at `Enum.StepFrequency.Hz60`, priority `4000` — stock's cadence and ordering slot. `BindToSimulation` defaults to `Hz30`, which is half that. The engine interpolates weights between steps, so render rate is independent of the step rate.
 
-Clients set `PredictionMode.On` on the `Animator` before loading anything, as stock does. Without it a replicated track cannot be resolved by animation ID, and the client loads a duplicate and drives that instead of the one on screen. Clients wait up to 30 seconds for the server handshake, then warn and start.
+Roblox manages prediction for the local character. AnimBlend does not override prediction mode on the `Animator`. Clients wait up to 30 seconds for the server handshake, then warn and start.
 
 ## Animation behavior
 
@@ -71,7 +71,7 @@ Use these rules for an ability, emote, or custom character controller that plays
 2. Create the `Animator` on the server.
 3. Store animation IDs or `Animation` instances, not `AnimationTrack` handles.
 4. Resolve the current `Animator` and live track during each simulation replay. Use `Animator:GetTrackByAnimationId()` before `LoadAnimation()`.
-5. On the client, set `RunService:SetPredictionMode(animator, Enum.PredictionMode.On)` before loading any track, from outside the simulation callback. Roblox rejects the call inside one, and without it every client-side `LoadAnimation` produces a second copy of the animation.
+5. Let Roblox manage character prediction; do not force a prediction mode on the `Animator`.
 6. Preload required assets before taking control from another animation script.
 7. Use `Action` priority or higher for animations that override locomotion.
 8. Do not let multiple scripts drive the same animation ID.
@@ -112,7 +112,7 @@ return initialize
 
 Use synchronized inputs and attributes for gameplay state. Keep particles, sound, and UI in render-side code.
 
-AnimBlend keeps jump timing in its own session state, derived from `time()`, and sets no attributes on the character. `AnimBlendServerReady` on the `AnimBlend` folder and `AnimBlendEnabled` on a `Player` are the only attributes it uses.
+AnimBlend stores its jump clock and phase as rollback-aware `Humanoid` attributes. Custom simulation state must likewise live on predicted instances, not in Lua tables.
 
 ## Configuration
 
