@@ -2,7 +2,7 @@
 
 AnimBlend is a server-authority locomotion controller for Roblox R6 and R15 characters. It replaces stock `Animate` locomotion while preserving a clean hand-off for emotes, tools, and custom action animations.
 
-Stock `Animate`, on both R6 and R15, drives poses from `Humanoid` events, caches `AnimationTrack` handles, and times transitions with wall-clock deltas. Under server authority the client is rewound and replayed: events do not re-fire, cached handles stop matching the visible track, and wall-clock timers advance twice. Locomotion sticks, snaps, or plays two poses at once.
+Stock `Animate` switches poses by stopping one clip and playing the next, blending only within the R15 walk/run pair, and it initializes once per character. AnimBlend keeps every locomotion clip loaded at a weight floor and drives all of them on each simulation step, so gait cycles resume mid-stride, variants swap without a replay, and the server and client reach the same pose during rollback.
 
 ## Install
 
@@ -22,7 +22,11 @@ Set `AuthorityMode` on `Workspace` Properties to `Server`. AnimBlend is only mea
 
 ## How it works
 
-AnimBlend runs the same controller through `RunService:BindToSimulation` on the server and local client. It preloads locomotion assets before disabling stock `Animate` and reacquires live tracks by animation ID on every simulation step. Decisions run on `Enum.StepFrequency.Hz60` at priority `4000`, the same cadence and ordering slot stock `Animate` uses; `BindToSimulation` defaults to `Hz30`, which is half that. The engine interpolates track weights between steps, so render rate is independent of it. Clients set `PredictionMode.On` on the `Animator` before loading anything, as stock does; without it a replicated track cannot be resolved by animation ID and the client drives a duplicate. Clients wait up to 30 seconds for the server handshake, then warn and start.
+AnimBlend runs the same controller through `RunService:BindToSimulation` on the server and local client. It preloads locomotion assets before disabling stock `Animate`, and reacquires live tracks by animation ID every step rather than holding handles.
+
+Decisions run at `Enum.StepFrequency.Hz60`, priority `4000` — stock's cadence and ordering slot. `BindToSimulation` defaults to `Hz30`, which is half that. The engine interpolates weights between steps, so render rate is independent of the step rate.
+
+Clients set `PredictionMode.On` on the `Animator` before loading anything, as stock does. Without it a replicated track cannot be resolved by animation ID, and the client loads a duplicate and drives that instead of the one on screen. Clients wait up to 30 seconds for the server handshake, then warn and start.
 
 ## Animation behavior
 
@@ -67,9 +71,10 @@ Use these rules for an ability, emote, or custom character controller that plays
 2. Create the `Animator` on the server.
 3. Store animation IDs or `Animation` instances, not `AnimationTrack` handles.
 4. Resolve the current `Animator` and live track during each simulation replay. Use `Animator:GetTrackByAnimationId()` before `LoadAnimation()`.
-5. Preload required assets before taking control from another animation script.
-6. Use `Action` priority or higher for animations that override locomotion.
-7. Do not let multiple scripts drive the same animation ID.
+5. On the client, set `RunService:SetPredictionMode(animator, Enum.PredictionMode.On)` before loading any track, from outside the simulation callback. Roblox rejects the call inside one, and without it every client-side `LoadAnimation` produces a second copy of the animation.
+6. Preload required assets before taking control from another animation script.
+7. Use `Action` priority or higher for animations that override locomotion.
+8. Do not let multiple scripts drive the same animation ID.
 
 Use `Humanoid.PlatformStand` while a temporary physics controller owns the rig. For a full replacement, set the player's `AnimBlendEnabled` attribute from the server and restore it when returning control. Clearing `AnimBlendEnabled` releases AnimBlend's tracks immediately; stock `Animate` only resumes on respawn. `AutoRotate`, `MoveDirection`, `SeatPart`, and `EvaluateStateMachine` are not handoff signals.
 
