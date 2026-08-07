@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lune
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          URL=$(curl -sSfL -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/lune-org/lune/releases/latest \
+            | grep -o 'https://[^"]*lune-[^"]*-linux-x86_64\.zip' | head -1)
+          test -n "$URL" || { echo "no linux-x86_64 asset found"; exit 1; }
+          curl -sSfL "$URL" -o /tmp/lune.zip
+          unzip -q /tmp/lune.zip -d "$HOME/.lune"
+          chmod +x "$HOME/.lune/lune"
+          echo "$HOME/.lune" >> "$GITHUB_PATH"
+
+      - run: lune --version
+
+      - name: Syntax check
+        run: lune run tests/syntax_check.luau
+
+      - name: Tests
+        run: lune run tests/run.luau
