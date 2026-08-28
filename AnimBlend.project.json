@@ -1,0 +1,25 @@
+{
+  "name": "AnimBlend",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "AnimBlend": {
+        "$path": "src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "AnimBlendServer": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "AnimBlendClient": {
+          "$path": "src/client"
+        }
+      }
+    }
+  }
+}
