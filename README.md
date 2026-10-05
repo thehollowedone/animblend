@@ -57,11 +57,16 @@ character:SetAttribute("AnimBlendExternalControl", nil) -- resume
 ## Verify
 
 ```text
+python tools/check-types.py
 stylua --check --config-path .stylua.toml src tests
 lune run tests/run.luau
 lune run tests/syntax_check.luau
 lune run tests/performance_budget_lune.luau
 ```
+
+Install the tools pinned in `rokit.toml` before running type analysis. The checker
+scans every runtime module with both Luau solvers, using default flags and all
+available flags to catch inference differences also seen in Studio Script Analysis.
 
 ## References
 

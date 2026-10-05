@@ -453,12 +453,12 @@ local function PushTools(
 		type(ActiveSlot) ~= "string"
 		or type(ActiveId) ~= "string"
 		or type(StartedAt) ~= "number"
-			or Ends == nil
+		or Ends == nil
 	then
 		ActiveSlot, ActiveId, StartedAt, Ends = nil, nil, nil, nil
 	end
 
-	if not Handle or (ActiveSlot and Now >= Ends) then
+	if not Handle or (ActiveSlot and Ends ~= nil and Now >= Ends) then
 		StopAction(ActiveId)
 		ClearToolState(RootPart)
 		ActiveSlot, ActiveId, StartedAt, Ends = nil, nil, nil, nil
@@ -579,7 +579,7 @@ local function PushTools(
 				and Processed.Slot == Requested
 				and Processed.Id == Id
 			local IsStale = (not HasSequence and not IsRequestEdge)
-				or (Processed ~= nil and HasSequence and RequestSequence < Processed.Sequence)
+				or (Processed ~= nil and RequestSequence ~= nil and RequestSequence < Processed.Sequence)
 				or (IsSameSequence and not IsExactConfirmation)
 			if not IsStale then
 				if Id then
@@ -661,7 +661,7 @@ local function PushTools(
 							RootPart:SetAttribute(ToolEndAttribute, Ends)
 							if HasSequence then
 								ProcessedToolRequests[Handle] = {
-								Sequence = RequestSequence :: number,
+									Sequence = RequestSequence :: number,
 									Slot = Requested,
 									Id = Id,
 									StartedAt = ActionStart,

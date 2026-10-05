@@ -437,14 +437,14 @@ function TrackDriver.Drive(
 
 	if not Track then
 		if not Wants or (Target.Sustain and Target.Weight <= WeightEpsilon) then
-			return
+			return nil
 		end
 		if Completed(Target) then
-			return
+			return nil
 		end
 		Track = ResolvePrepared(Animator, Target.Id, Step)
 		if not Track then
-			return
+			return nil
 		end
 	end
 
@@ -458,10 +458,10 @@ function TrackDriver.Drive(
 
 	if not Live.IsPlaying then
 		if not Wants or (Target.Sustain and Target.Weight <= WeightEpsilon) then
-			return
+			return nil
 		end
 		if Completed(Target) or not MakeRoom(Animator, Live, Step) then
-			return
+			return nil
 		end
 		Live.Looped = Target.Looped
 		Live:Play(Target.Fade, Wanted, Target.Rate)
@@ -475,7 +475,7 @@ function TrackDriver.Drive(
 		if type(Cycle) == "number" and Cycle >= 0 and Cycle < 1 and Live.Length > 0 then
 			Live.TimePosition = (Cycle % 1) * Live.Length
 		end
-		return
+		return nil
 	end
 
 	if Live.Looped ~= Target.Looped then
@@ -491,7 +491,7 @@ function TrackDriver.Drive(
 			Live:Stop(Target.Fade)
 			return Cycle
 		end
-		return
+		return nil
 	end
 
 	if not Target.Sustain and Live.WeightTarget <= WeightEpsilon then

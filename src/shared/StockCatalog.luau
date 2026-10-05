@@ -31,13 +31,14 @@ StockCatalog.ToolSlots = {
 	"toollunge",
 }
 
-StockCatalog.ToolSlotByState = {
+local ToolSlotByState: { [string]: string } = {
 	None = "toolnone",
 	Slash = "toolslash",
 	Lunge = "toollunge",
 }
+StockCatalog.ToolSlotByState = ToolSlotByState
 
-StockCatalog.ToolIdsByRig = {
+local ToolIdsByRig: { [string]: { [string]: string } } = {
 	R6 = {
 		toolnone = "rbxassetid://182393478",
 		toolslash = "rbxassetid://129967390",
@@ -49,6 +50,7 @@ StockCatalog.ToolIdsByRig = {
 		toollunge = "rbxassetid://522638767",
 	},
 }
+StockCatalog.ToolIdsByRig = ToolIdsByRig
 
 StockCatalog.EmoteSlots = {
 	"wave",
@@ -61,7 +63,7 @@ StockCatalog.EmoteSlots = {
 	"cheer",
 }
 
-StockCatalog.EmoteIndexByName = {
+local EmoteIndexByName: { [string]: number } = {
 	wave = 1,
 	point = 2,
 	dance = 3,
@@ -71,6 +73,7 @@ StockCatalog.EmoteIndexByName = {
 	laugh = 7,
 	cheer = 8,
 }
+StockCatalog.EmoteIndexByName = EmoteIndexByName
 
 StockCatalog.EmoteNameByIndex = {
 	[1] = "wave",
@@ -83,12 +86,13 @@ StockCatalog.EmoteNameByIndex = {
 	[8] = "cheer",
 }
 
-StockCatalog.LoopedEmotes = {
+local LoopedEmotes: { [string]: boolean } = {
 	dance = true,
 	dance1 = true,
 	dance2 = true,
 	dance3 = true,
 }
+StockCatalog.LoopedEmotes = LoopedEmotes
 
 StockCatalog.R6DanceSlots = {
 	"dance1",

@@ -8,6 +8,12 @@ export type Sample = {
 	Weight: number?,
 }
 
+export type WeightedSample = {
+	Id: string,
+	Velocity: Vector2,
+	Weight: number,
+}
+
 local AngleWeight = 2
 local ContributionFloor = 0.1
 local ContributionFull = 0.2
@@ -47,7 +53,7 @@ function DirectionalSolver.Solve(
 	WorldX: number,
 	WorldY: number,
 	HeightScale: number,
-	Samples: { Sample },
+	Samples: { Sample } | { WeightedSample },
 	Weights: { number }
 ): number?
 	local Scale = if HeightScale > 0 then HeightScale else 1
@@ -64,11 +70,13 @@ function DirectionalSolver.Solve(
 	end
 
 	local Sum = 0
-	for Index, First in Samples do
+	for Index = 1, Count do
+		local First = Samples[Index]
 		local FirstVelocity = First.Velocity
 		if SameQuadrant(TargetX, TargetY, FirstVelocity) then
 			local Best = math.huge
-			for _, Second in Samples do
+			for SecondIndex = 1, Count do
+				local Second = Samples[SecondIndex]
 				local SecondVelocity = Second.Velocity
 				if SameQuadrant(TargetX, TargetY, SecondVelocity) then
 					Best = math.min(
@@ -90,7 +98,8 @@ function DirectionalSolver.Solve(
 	local Kept = 0
 	local WeightedX = 0
 	local WeightedY = 0
-	for Index, Sample in Samples do
+	for Index = 1, Count do
+		local Sample = Samples[Index]
 		local Weight = Weights[Index]
 		local Share = Weight / Sum
 		if Share > ContributionFloor then

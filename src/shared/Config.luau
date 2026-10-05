@@ -1,5 +1,10 @@
 --!strict
 
+local RigOverrides: { [string]: { [string]: number | boolean | string } } = {
+	R6 = {},
+	R15 = {},
+}
+
 return {
 	SimulationFrequency = Enum.StepFrequency.Hz60,
 	SimulationPriority = 4_001,
@@ -14,8 +19,5 @@ return {
 	-- the contract or set nil when an integration does not need explicit leases.
 	ExternalControlAttribute = "AnimBlendExternalControl",
 
-	RigOverrides = {
-		R6 = {},
-		R15 = {},
-	},
+	RigOverrides = RigOverrides,
 }
