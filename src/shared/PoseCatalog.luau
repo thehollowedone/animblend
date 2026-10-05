@@ -254,11 +254,17 @@ local function SupportsDirectional(
 
 	local WalkIds: { [string]: boolean } = {}
 	local RunIds: { [string]: boolean } = {}
-	for _, Entry in Slots.walk or {} do
-		WalkIds[Entry.Id] = true
+	local WalkVariants = Slots.walk
+	if WalkVariants then
+		for _, Entry in WalkVariants do
+			WalkIds[Entry.Id] = true
+		end
 	end
-	for _, Entry in Slots.run or {} do
-		RunIds[Entry.Id] = true
+	local RunVariants = Slots.run
+	if RunVariants then
+		for _, Entry in RunVariants do
+			RunIds[Entry.Id] = true
+		end
 	end
 
 	local HasWalk = false
@@ -282,7 +288,7 @@ local function Finalize(
 	Slots: { [string]: { Variant } },
 	Directional: { DirectionalVariant }?
 ): Catalog
-	local DirectionalEntries = Directional or {}
+	local DirectionalEntries: { DirectionalVariant } = Directional or {}
 	local EntryCount = #DirectionalEntries
 	for Slot, Variants in Slots do
 		if #Variants > Limits.MaxVariantsPerSlot then

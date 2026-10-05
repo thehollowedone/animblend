@@ -211,20 +211,20 @@ local function ClearSustainState(RootPart: BasePart)
 end
 
 local function IdleVariantsReady(RootPart: BasePart, Weight: number): boolean
-	local Started = RootPart:GetAttribute(IdleStartedAttribute)
+	local IdleStartedAt = RootPart:GetAttribute(IdleStartedAttribute)
 	if Weight < VariantVisible then
-		if Started ~= nil then
+		if IdleStartedAt ~= nil then
 			RootPart:SetAttribute(IdleStartedAttribute, nil)
 		end
 		return false
 	end
 
 	local Now = time()
-	if type(Started) ~= "number" or Started > Now then
+	if type(IdleStartedAt) ~= "number" or IdleStartedAt > Now then
 		RootPart:SetAttribute(IdleStartedAttribute, Now)
 		return false
 	end
-	return Now - Started >= VariantSelectionPeriod
+	return Now - IdleStartedAt >= VariantSelectionPeriod
 end
 
 local function ClearJumpState(RootPart: BasePart)
@@ -242,27 +242,27 @@ local function JumpElapsed(
 	end
 
 	local Now = time()
-	local Started = RootPart:GetAttribute(JumpStartedAttribute)
+	local JumpStartedAt = RootPart:GetAttribute(JumpStartedAttribute)
 	local Phase = RootPart:GetAttribute(JumpPhaseAttribute)
 
 	if StateName == "Jumping" then
 		local StartedAt: number
-		if Phase ~= "Jumping" or type(Started) ~= "number" then
+		if Phase ~= "Jumping" or type(JumpStartedAt) ~= "number" then
 			StartedAt = Now
 			RootPart:SetAttribute(JumpStartedAttribute, StartedAt)
 			RootPart:SetAttribute(JumpPhaseAttribute, "Jumping")
 		else
-			StartedAt = Started
+			StartedAt = JumpStartedAt
 		end
 		return math.max(Now - StartedAt, 0)
 	end
 
 	if StateName == "Freefall" then
-		if type(Started) == "number" then
+		if type(JumpStartedAt) == "number" then
 			if Phase ~= "Freefall" then
 				RootPart:SetAttribute(JumpPhaseAttribute, "Freefall")
 			end
-			return math.max(Now - Started, 0)
+			return math.max(Now - JumpStartedAt, 0)
 		end
 		return nil
 	end
@@ -426,7 +426,11 @@ local function PushTools(
 			CancelToolRequest(Session, RootPart, PreviousHandle)
 			PredictedToolRequests[PreviousHandle] = nil
 		end
-		LastToolHandles[Session] = Handle
+		if Handle then
+			LastToolHandles[Session] = Handle
+		else
+			LastToolHandles[Session] = nil
+		end
 		ClearToolState(RootPart)
 	end
 
@@ -437,24 +441,24 @@ local function PushTools(
 		HasSynchronizedInput = type(ContextName) == "string" and type(ActionName) == "string"
 	end
 	local Now = if HasSynchronizedInput then time() else Workspace:GetServerTimeNow()
-	local ActiveSlot = RootPart:GetAttribute(ToolSlotAttribute)
-	local ActiveId = RootPart:GetAttribute(ToolIdAttribute)
-	local StartedAt = RootPart:GetAttribute(ToolStartAttribute)
-	local Ends = RootPart:GetAttribute(ToolEndAttribute)
+	local RawActiveSlot = RootPart:GetAttribute(ToolSlotAttribute)
+	local RawActiveId = RootPart:GetAttribute(ToolIdAttribute)
+	local RawStartedAt = RootPart:GetAttribute(ToolStartAttribute)
+	local RawEnds = RootPart:GetAttribute(ToolEndAttribute)
+	local ActiveSlot: string? = if type(RawActiveSlot) == "string" then RawActiveSlot else nil
+	local ActiveId: string? = if type(RawActiveId) == "string" then RawActiveId else nil
+	local StartedAt: number? = if type(RawStartedAt) == "number" then RawStartedAt else nil
+	local Ends: number? = if type(RawEnds) == "number" then RawEnds else nil
 	if
 		type(ActiveSlot) ~= "string"
 		or type(ActiveId) ~= "string"
 		or type(StartedAt) ~= "number"
-		or type(Ends) ~= "number"
+			or Ends == nil
 	then
 		ActiveSlot, ActiveId, StartedAt, Ends = nil, nil, nil, nil
 	end
 
-	if not Handle then
-		StopAction(ActiveId)
-		ClearToolState(RootPart)
-		ActiveSlot, ActiveId, StartedAt, Ends = nil, nil, nil, nil
-	elseif ActiveSlot and Now >= Ends then
+	if not Handle or (ActiveSlot and Now >= Ends) then
 		StopAction(ActiveId)
 		ClearToolState(RootPart)
 		ActiveSlot, ActiveId, StartedAt, Ends = nil, nil, nil, nil
@@ -523,16 +527,17 @@ local function PushTools(
 			ActiveSlot = Prediction.Slot
 			ActiveId = Prediction.Id
 			StartedAt = Prediction.StartedAt
-			Ends = StartedAt + StockCatalog.ToolDuration
+			Ends = Prediction.StartedAt + StockCatalog.ToolDuration
 			RootPart:SetAttribute(ToolSlotAttribute, ActiveSlot)
 			RootPart:SetAttribute(ToolIdAttribute, ActiveId)
 			RootPart:SetAttribute(ToolStartAttribute, StartedAt)
 			RootPart:SetAttribute(ToolEndAttribute, Ends)
 		end
 
-		local RequestSequence = if HasSynchronizedInput or IsNewLegacyEdge
+		local RequestSequence: number? = if HasSynchronizedInput or IsNewLegacyEdge
 			then nil
-			else ReplicatedSequence
+			elseif type(ReplicatedSequence) == "number" then ReplicatedSequence
+			else nil
 		local HasSequence = type(RequestSequence) == "number"
 		local State = if HasSynchronizedInput
 			then SynchronizedState
@@ -623,8 +628,8 @@ local function PushTools(
 						if ActiveId ~= Id then
 							StopAction(ActiveId)
 						end
-						local Started = if Processed == nil then LiveTrack else nil
-						if not Started or not Started.IsPlaying then
+						local ExistingTrack = if Processed == nil then LiveTrack else nil
+						if not ExistingTrack or not ExistingTrack.IsPlaying then
 							local DidStart = TrackDriver.Restart(Animator, {
 								Id = Id,
 								Weight = 1,
@@ -636,13 +641,13 @@ local function PushTools(
 								CycleAttribute = nil,
 								Cycle = nil,
 							}, StepTracks)
-							Started = if DidStart
+							ExistingTrack = if DidStart
 								then TrackDriver.Find(Animator, Id, StepTracks)
 								else nil
 						end
-						if Started then
+						if ExistingTrack then
 							local Elapsed =
-								math.clamp(Started.TimePosition, 0, StockCatalog.ToolDuration)
+								math.clamp(ExistingTrack.TimePosition, 0, StockCatalog.ToolDuration)
 							local CommittedStart = Handle:GetAttribute(ToolStartedAttribute)
 							local ActionStart = if HasSequence
 									and type(CommittedStart) == "number"
@@ -656,7 +661,7 @@ local function PushTools(
 							RootPart:SetAttribute(ToolEndAttribute, Ends)
 							if HasSequence then
 								ProcessedToolRequests[Handle] = {
-									Sequence = RequestSequence,
+								Sequence = RequestSequence :: number,
 									Slot = Requested,
 									Id = Id,
 									StartedAt = ActionStart,
@@ -992,28 +997,27 @@ UpdateEmote = function(
 	StepTracks: TrackDriver.StepTracks
 ): (string?, string?)
 	local Now = time()
-	local Slot = RootPart:GetAttribute(EmoteSlotAttribute)
-	local Id = RootPart:GetAttribute(EmoteIdAttribute)
-	if type(Slot) ~= "string" or type(Id) ~= "string" then
-		Slot, Id = nil, nil
-	end
+	local RawSlot = RootPart:GetAttribute(EmoteSlotAttribute)
+	local RawId = RootPart:GetAttribute(EmoteIdAttribute)
+	local Slot: string? = if type(RawSlot) == "string" then RawSlot else nil
+	local Id: string? = if type(RawId) == "string" then RawId else nil
 
 	if Slot and Id then
 		if not CanEmote then
 			ClearEmoteState(RootPart)
 			Slot, Id = nil, nil
 		elseif not StockCatalog.LoopedEmotes[Slot] then
-			local Started = RootPart:GetAttribute(EmoteStartAttribute)
+			local EmoteStartedAt = RootPart:GetAttribute(EmoteStartAttribute)
 			local Ends = RootPart:GetAttribute(EmoteEndAttribute)
-			if type(Started) ~= "number" then
+			if type(EmoteStartedAt) ~= "number" then
 				ClearEmoteState(RootPart)
 				Slot, Id = nil, nil
 			elseif type(Ends) ~= "number" then
 				local Length = TrackDriver.Length(Animator, Id, StepTracks)
 				if Length then
-					Ends = Started + Length
+					Ends = EmoteStartedAt + Length
 					RootPart:SetAttribute(EmoteEndAttribute, Ends)
-				elseif Now - Started >= 10 then
+				elseif Now - EmoteStartedAt >= 10 then
 					ClearEmoteState(RootPart)
 					Slot, Id = nil, nil
 				end
@@ -1030,20 +1034,20 @@ UpdateEmote = function(
 		local ChosenSlot, ChosenId = ChooseEmote(Session, Requested, EventBucket(Session))
 		if ChosenSlot and ChosenId then
 			Slot, Id = ChosenSlot, ChosenId
-			RootPart:SetAttribute(EmoteSlotAttribute, Slot)
-			RootPart:SetAttribute(EmoteIdAttribute, Id)
+			RootPart:SetAttribute(EmoteSlotAttribute, ChosenSlot)
+			RootPart:SetAttribute(EmoteIdAttribute, ChosenId)
 			RootPart:SetAttribute(EmoteStartAttribute, Now)
-			local Length = TrackDriver.Length(Animator, Id, StepTracks)
+			local Length = TrackDriver.Length(Animator, ChosenId, StepTracks)
 			RootPart:SetAttribute(
 				EmoteEndAttribute,
-				if StockCatalog.LoopedEmotes[Slot] or not Length then nil else Now + Length
+				if StockCatalog.LoopedEmotes[ChosenSlot] or not Length then nil else Now + Length
 			)
 			TrackDriver.Restart(Animator, {
-				Id = Id,
+				Id = ChosenId,
 				Weight = 1,
 				Rate = 1,
 				Fade = StockFade,
-				Looped = StockCatalog.LoopedEmotes[Slot] == true,
+				Looped = StockCatalog.LoopedEmotes[ChosenSlot] == true,
 				Sustain = false,
 				Priority = Enum.AnimationPriority.Core,
 				CycleAttribute = nil,
@@ -1061,7 +1065,9 @@ local function StepAll()
 	for Index = #Sessions, 1, -1 do
 		local Session = Sessions[Index]
 		if Session then
-			local Ok, Message = pcall(StepSession, Session)
+			local Ok, Message = pcall(function()
+				StepSession(Session)
+			end)
 			if not Ok and not ReportedStepErrors[Session] then
 				PendingStepErrors[Session] = tostring(Message)
 			end

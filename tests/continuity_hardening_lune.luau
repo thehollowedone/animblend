@@ -215,7 +215,7 @@ end
 
 do
 	local Modules = Stub.Build()
-	local GoodAnimator, GoodHumanoid, Good = NewWorld(Modules)
+	local GoodAnimator, _, Good = NewWorld(Modules)
 	local BadAnimator, BadHumanoid, Bad = NewWorld(Modules)
 	BadHumanoid.GetState = function()
 		error("isolated test fault")

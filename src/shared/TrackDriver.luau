@@ -132,7 +132,7 @@ end
 -- GetPlayingAnimationTracks scan within one simulation step without retaining
 -- rollback-sensitive AnimationTrack handles between steps.
 function TrackDriver.BeginStep(Animator: Animator): StepTracks
-	local Tracks = Animator:GetPlayingAnimationTracks()
+	local Tracks: { AnimationTrack } = Animator:GetPlayingAnimationTracks()
 	local ByKey: { [string]: AnimationTrack } = {}
 	local Seen: { [AnimationTrack]: boolean } = {}
 	for _, Track in Tracks do
@@ -290,7 +290,7 @@ function TrackDriver.Collapse(
 ): AnimationTrack?
 	local Key = AssetKey(AnimationId)
 	local Keep: AnimationTrack? = nil
-	local Tracks = if Step and Step.Animator == Animator
+	local Tracks: { AnimationTrack } = if Step and Step.Animator == Animator
 		then Step.Tracks
 		else Animator:GetPlayingAnimationTracks()
 	for _, Track in Tracks do
@@ -361,7 +361,7 @@ local function MakeRoom(Animator: Animator, Exclude: AnimationTrack, Step: StepT
 		return true
 	end
 
-	local Tracks = if Step and Step.Animator == Animator
+	local Tracks: { AnimationTrack } = if Step and Step.Animator == Animator
 		then Step.Tracks
 		else Animator:GetPlayingAnimationTracks()
 	local Managed = 0
@@ -512,6 +512,7 @@ function TrackDriver.Drive(
 	then
 		Live:AdjustSpeed(Target.Rate)
 	end
+	return nil
 end
 
 function TrackDriver.VisibleCycle(

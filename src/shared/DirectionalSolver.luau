@@ -5,6 +5,7 @@ local DirectionalSolver = {}
 export type Sample = {
 	Id: string,
 	Velocity: Vector2,
+	Weight: number?,
 }
 
 local AngleWeight = 2

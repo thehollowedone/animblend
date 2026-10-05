@@ -150,7 +150,6 @@ do
 	local Animator, Humanoid, Session = NewWorld(FullSlots, "R15")
 	Drive(Session, Animator, Humanoid, 8, 30)
 	local Walk = Animator.Tracks[WalkId]
-	local Idle = Animator.Tracks[IdleId]
 
 	for _ = 1, 20 do
 		Drive(Session, Animator, Humanoid, 0.2, 6)
@@ -277,7 +276,6 @@ do
 	local Animator, Humanoid, Session = NewWorld(FullSlots, "R15")
 	Drive(Session, Animator, Humanoid, 1.25, 20)
 	local Walk = Animator.Tracks[WalkId]
-	local Idle = Animator.Tracks[IdleId]
 
 	-- Stock has no idle/walk cross-blend: past the gate, walk owns the pose.
 	T:Near("past the gate walk owns the pose", Walk.WeightTarget, 1)
@@ -1022,7 +1020,7 @@ end
 do
 	-- Takeover: stock's leftover track is unresolvable, so releasing by id left it
 	-- playing and it survived into AnimBlend's session.
-	local Animator, Humanoid, Session = NewWorld(FullSlots, "R15")
+	local Animator, _, Session = NewWorld(FullSlots, "R15")
 	local Leftover = Animator:AddStray(IdleId, 1)
 	Modules.TrackDriver.StopAll(Animator, Session.Catalog.AllIds, 0)
 	T:False("StopAll releases unresolvable copies too", Leftover.IsPlaying)
@@ -1171,7 +1169,6 @@ do
 	Session.Animate = Animate
 
 	ServerModules.CharacterBinder.Rebuild(Session)
-	local Owned = Humanoid:FindFirstChildOfClass("Animator")
 	local PublishedCatalog = Session.Character:FindFirstChild("AnimBlendCatalog")
 	local Signature = PublishedCatalog and PublishedCatalog.Value
 	T:True("server publishes the owned animation catalog", type(Signature) == "string")
@@ -1593,7 +1590,7 @@ do
 		return Animator, Humanoid, Stub.Session(Humanoid, Profile, Catalog)
 	end
 
-	local AnimatorA, HumanoidA, SessionA = Peer()
+	local AnimatorA, _, SessionA = Peer()
 	local AnimatorB, HumanoidB, SessionB = Peer()
 	SessionB.Root = SessionA.Root
 

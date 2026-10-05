@@ -609,44 +609,40 @@ function Stub.NewInstance(ClassName: string, Name: string, Props: { [string]: an
 		return nil
 	end
 	Node.GetChildren = function(_)
-		local Copy = {}
-		for Index, Child in Node.Children do
-			Copy[Index] = Child
-		end
-		return Copy
+		return table.clone(Node.Children)
 	end
 	Node.GetAttribute = function(_, AttributeName)
 		return Node.Attributes[AttributeName]
 	end
 	Node.SetAttribute = function(_, AttributeName, Value)
 		Node.Attributes[AttributeName] = Value
-		local Signal = AttributeSignals[AttributeName]
-		if Signal then
-			Signal:Fire()
+		local attributeSignal = AttributeSignals[AttributeName]
+		if attributeSignal then
+			attributeSignal:Fire()
 		end
 	end
 	Node.GetAttributeChangedSignal = function(_, AttributeName)
-		local Signal = AttributeSignals[AttributeName]
-		if not Signal then
-			Signal = Event()
-			AttributeSignals[AttributeName] = Signal
+		local attributeSignal = AttributeSignals[AttributeName]
+		if not attributeSignal then
+			attributeSignal = Event()
+			AttributeSignals[AttributeName] = attributeSignal
 		end
-		return Signal
+		return attributeSignal
 	end
 	Node.GetPropertyChangedSignal = function(_, PropertyName)
-		local Signal = PropertySignals[PropertyName]
-		if not Signal then
-			Signal = Event()
-			PropertySignals[PropertyName] = Signal
+		local propertySignal = PropertySignals[PropertyName]
+		if not propertySignal then
+			propertySignal = Event()
+			PropertySignals[PropertyName] = propertySignal
 		end
-		return Signal
+		return propertySignal
 	end
 	Node.SetProperty = function(_, PropertyName, Value)
 		Node[PropertyName] = Value
 		Node.Changed:Fire(Value)
-		local Signal = PropertySignals[PropertyName]
-		if Signal then
-			Signal:Fire()
+		local propertySignal = PropertySignals[PropertyName]
+		if propertySignal then
+			propertySignal:Fire()
 		end
 	end
 	Node.GetDescendants = function(_)

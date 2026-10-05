@@ -133,7 +133,7 @@ end
 local function ClearEmoteBinding(Session: Session)
 	local Bindable = Session.PlayEmote
 	if Bindable then
-		Bindable.OnInvoke = nil
+		(Bindable :: any).OnInvoke = nil
 	end
 	Session.PlayEmote = nil
 end
@@ -193,10 +193,10 @@ end
 local function PublishCatalog(Character: Model, Signature: string)
 	local Value = FindCatalogValue(Character)
 	if not Value then
-		Value = Instance.new("StringValue")
-		Value.Name = CatalogValueName
-		Value.Value = Signature
-		Value.Parent = Character
+		local Created: StringValue = Instance.new("StringValue")
+		Created.Name = CatalogValueName
+		Created.Value = Signature
+		Created.Parent = Character
 	elseif Value.Value ~= Signature then
 		Value.Value = Signature
 	end
@@ -365,7 +365,7 @@ local function WatchAnimate(Session: Session, Animate: Instance)
 				Input:GetAttributeChangedSignal("LinearVelocity"):Connect(QueueIfLive)
 			)
 		elseif Input:IsA("StringValue") or Input:IsA("NumberValue") then
-			table.insert(InputConns, Input.Changed:Connect(QueueIfLive))
+			table.insert(InputConns, Input:GetPropertyChangedSignal("Value"):Connect(QueueIfLive))
 		end
 		if
 			Input:IsA("Animation")

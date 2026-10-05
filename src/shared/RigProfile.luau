@@ -250,10 +250,7 @@ function RigProfile.Resolve(RigTypeName: string, Caps: Capabilities, Overrides: 
 	local Base = if RigName == "R6" then RigProfile.R6 else RigProfile.R15
 	ValidateOverride(RigName, Overrides)
 
-	local Resolved: { [string]: any } = {}
-	for Key, Value in Base :: any do
-		Resolved[Key] = Value
-	end
+	local Resolved: { [string]: any } = table.clone(Base :: any)
 
 	if Overrides then
 		for Key, Value in Overrides do
