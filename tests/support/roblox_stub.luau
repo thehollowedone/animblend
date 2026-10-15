@@ -5,6 +5,7 @@ local Stub = {}
 
 local ServerTime = 1000
 local SimulationTime = 1000
+local ToolIdentitySequence = 0
 
 local function Signal()
 	return {
@@ -461,36 +462,31 @@ end
 -- Stock Animate only animates a Tool that actually has a Handle, so a stub tool
 -- has to be able to answer FindFirstChild("Handle") both ways.
 function Stub.Tool(Name: string, WithHandle: boolean?)
-	local Children: { [string]: any } = {}
-	local Tool: any = nil
-	if WithHandle ~= false then
-		local Attributes = {}
-		Children.Handle = {
-			ClassName = "Part",
-			Name = "Handle",
-			GetAttribute = function(_, Attribute)
-				return Attributes[Attribute]
-			end,
-			SetAttribute = function(_, Attribute, Value)
-				Attributes[Attribute] = Value
-			end,
-		}
-	end
-	Tool = {
-		ClassName = "Tool",
-		Name = Name,
-		FindFirstChild = function(_, ChildName)
-			return Children[ChildName]
-		end,
-		SetChild = function(_, ChildName, Child)
-			Children[ChildName] = Child
-			if Child then
-				Child.Parent = Tool
+	local Tool = Stub.NewInstance("Tool", Name)
+	Tool.SetChild = function(_, ChildName, Child)
+		local Previous = Tool:FindFirstChild(ChildName)
+		if Previous then
+			table.remove(Tool.Children, table.find(Tool.Children, Previous))
+			Previous.Parent = nil
+		end
+		if Child then
+			Child.Name = ChildName
+			Child.Parent = Tool
+			table.insert(Tool.Children, Child)
+			local Ancestor = Tool
+			while type(Ancestor) == "table" do
+				if Ancestor.DescendantAdded then
+					Ancestor.DescendantAdded:Fire(Child)
+				end
+				Ancestor = Ancestor.Parent
 			end
-		end,
-	}
-	if Children.Handle then
-		Children.Handle.Parent = Tool
+		end
+	end
+	if WithHandle ~= false then
+		ToolIdentitySequence += 1
+		local Handle = Stub.NewInstance("Part", "Handle")
+		Handle:SetAttribute("AnimBlendToolIdentity", "stub-tool-" .. ToolIdentitySequence)
+		Tool:SetChild("Handle", Handle)
 	end
 	return Tool
 end
@@ -598,7 +594,7 @@ function Stub.NewInstance(ClassName: string, Name: string, Props: { [string]: an
 		end
 	end
 	Node.IsA = function(_, Query)
-		return Query == ClassName
+		return Query == ClassName or (Query == "BasePart" and ClassName == "Part")
 	end
 	Node.FindFirstChild = function(_, ChildName)
 		for _, Child in Node.Children do
@@ -648,7 +644,7 @@ function Stub.NewInstance(ClassName: string, Name: string, Props: { [string]: an
 	Node.GetDescendants = function(_)
 		local Descendants = {}
 		local function Visit(Current)
-			for _, Child in Current.Children do
+			for _, Child in Current.Children or {} do
 				Descendants[#Descendants + 1] = Child
 				Visit(Child)
 			end
@@ -661,6 +657,7 @@ end
 
 function Stub.BinderCharacter(Humanoid, RootPart, Animate)
 	local CurrentHumanoid = Humanoid
+	local Attributes = {}
 	local Children = {
 		HumanoidRootPart = RootPart,
 		Animate = Animate,
@@ -668,19 +665,62 @@ function Stub.BinderCharacter(Humanoid, RootPart, Animate)
 	local Character
 	Character = {
 		Parent = true,
+		IsA = function(_, ClassName)
+			return ClassName == "Model"
+		end,
+		GetAttribute = function(_, Name)
+			return Attributes[Name]
+		end,
+		SetAttribute = function(_, Name, Value)
+			Attributes[Name] = Value
+		end,
 		AncestryChanged = Event(),
 		ChildAdded = Event(),
 		ChildRemoved = Event(),
+		DescendantAdded = Event(),
 		FindFirstChild = function(_, Name)
 			return Children[Name]
 		end,
 		FindFirstChildOfClass = function(_, ClassName)
-			return if ClassName == "Humanoid" then CurrentHumanoid else nil
+			if ClassName == "Humanoid" then
+				return CurrentHumanoid
+			end
+			for _, Child in Children do
+				if Child.IsA and Child:IsA(ClassName) then
+					return Child
+				end
+			end
+			return nil
+		end,
+		GetDescendants = function()
+			local Descendants = { CurrentHumanoid }
+			for _, Child in Children do
+				table.insert(Descendants, Child)
+				if Child.GetDescendants then
+					for _, Descendant in Child:GetDescendants() do
+						table.insert(Descendants, Descendant)
+					end
+				end
+			end
+			return Descendants
 		end,
 		AddChild = function(_, Child)
 			Children[Child.Name] = Child
 			Child.Parent = Character
 			Character.ChildAdded:Fire(Child)
+			Character.DescendantAdded:Fire(Child)
+			if Child.GetDescendants then
+				for _, Descendant in Child:GetDescendants() do
+					Character.DescendantAdded:Fire(Descendant)
+				end
+			end
+		end,
+		RemoveChild = function(_, Child)
+			if Children[Child.Name] == Child then
+				Children[Child.Name] = nil
+				Child.Parent = nil
+				Character.ChildRemoved:Fire(Child)
+			end
 		end,
 		AddHumanoid = function(_, NextHumanoid)
 			CurrentHumanoid = NextHumanoid
@@ -688,6 +728,7 @@ function Stub.BinderCharacter(Humanoid, RootPart, Animate)
 			Character.ChildAdded:Fire(NextHumanoid)
 		end,
 	}
+	Character.FindFirstChildWhichIsA = Character.FindFirstChildOfClass
 	RootPart.Name = "HumanoidRootPart"
 	RootPart.Parent = Character
 	RootPart.IsA = function(_, ClassName)
@@ -867,6 +908,14 @@ function Stub.Build(ConfigOverrides: { [string]: any }?, Client: boolean?, RealB
 	end
 
 	local Services = {
+		HttpService = {
+			GenerateGUIDCalls = 0,
+			GenerateGUID = function(self, WrapInBraces)
+				assert(WrapInBraces == false, "tool identities use unwrapped GUIDs")
+				self.GenerateGUIDCalls += 1
+				return "generated-tool-guid-" .. self.GenerateGUIDCalls
+			end,
+		},
 		Workspace = Workspace,
 		RunService = RunService,
 		ContentProvider = {
@@ -1083,6 +1132,7 @@ function Stub.Build(ConfigOverrides: { [string]: any }?, Client: boolean?, RealB
 	end
 	Load("AnimBlend", "src/shared/AnimBlend.luau")
 	Modules.RunService = RunService
+	Modules.HttpService = Services.HttpService
 	Modules.Players = Services.Players
 	Modules.Root = AnimBlendFolder
 	Modules.FlushDeferred = function()

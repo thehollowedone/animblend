@@ -45,14 +45,17 @@ function VariantPicker.Pick(Variants: { Variant }, Bucket: number): Variant?
 		return Variants[(Hash(Bucket) % Count) + 1]
 	end
 
-	local Roll = (Hash(Bucket) % Total) + 1
+	-- Normalize weights instead of scaling the roll, so even subnormal positive
+	-- weights retain their proportions without underflowing the random value.
+	local Roll = Hash(Bucket) / Modulus
 	for _, Entry in Variants do
 		local Weight = Entry.Weight
 		if type(Weight) == "number" and Weight > 0 then
-			if Roll <= Weight then
+			local Share = Weight / Total
+			if Roll < Share then
 				return Entry
 			end
-			Roll -= Weight
+			Roll -= Share
 		end
 	end
 

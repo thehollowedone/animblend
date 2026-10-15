@@ -126,6 +126,9 @@ function DirectionalSolver.Solve(
 		Weights[Index] /= Kept
 	end
 
+	-- Playback must use the same normalized blend as the emitted track weights.
+	WeightedX /= Kept
+	WeightedY /= Kept
 	local WeightedSpeed = math.sqrt(WeightedX * WeightedX + WeightedY * WeightedY)
 	if WeightedSpeed <= Epsilon then
 		return nil

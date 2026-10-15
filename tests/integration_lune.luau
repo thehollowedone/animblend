@@ -519,11 +519,16 @@ do
 	local Profile = RigProfile.Resolve("R15", { HasDistinctRun = true, HasSwimSlots = false })
 	local Session = Stub.Session(Humanoid, Profile, Catalog)
 
-	Drive(Session, Animator, Humanoid, 0, 900)
+	-- A deterministic weighted pick may repeat across adjacent eight-second
+	-- buckets. Cover twenty buckets rather than assuming two picks alternate.
+	local PreviousTime = Stub.Now()
+	Stub.SetServerTime(1000)
+	Drive(Session, Animator, Humanoid, 0, 9600)
+	Stub.SetServerTime(PreviousTime)
 
 	local PlayedA = Animator.Tracks[IdleA] and Animator.Tracks[IdleA].PlayCount or 0
 	local PlayedB = Animator.Tracks[IdleB] and Animator.Tracks[IdleB].PlayCount or 0
-	T:True("idle re-rolls across loop wraps", PlayedA + PlayedB > 1)
+	T:True("idle re-rolls across seeded time buckets", PlayedA + PlayedB > 1)
 	T:True("both idle variants get used", PlayedA > 0 and PlayedB > 0)
 end
 

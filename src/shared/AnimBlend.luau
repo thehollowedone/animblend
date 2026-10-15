@@ -151,6 +151,8 @@ local EmoteSlotAttribute = "AnimBlendEmoteSlot"
 local EmoteIdAttribute = "AnimBlendEmoteId"
 local EmoteStartAttribute = "AnimBlendEmoteStartedAt"
 local EmoteEndAttribute = "AnimBlendEmoteEndsAt"
+local ToolIdentityAttribute = "AnimBlendToolIdentity"
+local ToolOwnerAttribute = "AnimBlendToolOwner"
 local ToolSlotAttribute = "AnimBlendToolSlot"
 local ToolIdAttribute = "AnimBlendToolId"
 local ToolStartAttribute = "AnimBlendToolStartedAt"
@@ -186,6 +188,7 @@ local CancelledToolHandles: { [CharacterBinder.Session]: Instance } = setmetatab
 	{ __mode = "k" }
 ) :: any
 local LastLegacyToolSignals: { [Instance]: Instance } = setmetatable({}, { __mode = "k" }) :: any
+local PendingLegacyToolSignals: { [Instance]: Instance } = setmetatable({}, { __mode = "k" }) :: any
 local LastToolHandles: { [any]: Instance } = setmetatable({}, { __mode = "k" }) :: any
 local PendingToolPhases: { [Animator]: { Id: string, StartedAt: number } } = setmetatable(
 	{},
@@ -419,27 +422,43 @@ local function PushTools(
 		end
 	end
 
-	local PreviousHandle = LastToolHandles[Session]
-	if PreviousHandle ~= Handle then
-		StopAction(RootPart:GetAttribute(ToolIdAttribute))
-		if PreviousHandle then
-			CancelToolRequest(Session, RootPart, PreviousHandle)
-			PredictedToolRequests[PreviousHandle] = nil
-		end
-		if Handle then
-			LastToolHandles[Session] = Handle
-		else
-			LastToolHandles[Session] = nil
-		end
-		ClearToolState(RootPart)
-	end
-
 	local HasSynchronizedInput = false
 	if Handle then
 		local ContextName = Handle:GetAttribute(ToolInputContextAttribute)
 		local ActionName = Handle:GetAttribute(ToolInputActionAttribute)
 		HasSynchronizedInput = type(ContextName) == "string" and type(ActionName) == "string"
 	end
+
+	-- The server assigns immutable handle identities outside simulation. The
+	-- active owner belongs to the rollback snapshot, not the local handle cache.
+	-- An unidentified tool cannot inherit the previous tool's action. Release
+	-- that action while leaving the new synchronized input unconsumed.
+	local RawIdentity = if Handle then Handle:GetAttribute(ToolIdentityAttribute) else nil
+	local Identity = if type(RawIdentity) == "string" and RawIdentity ~= ""
+		then RawIdentity
+		else nil
+	if HasSynchronizedInput and Identity == nil then
+		Handle = nil
+	end
+	local PreviousHandle = LastToolHandles[Session]
+	local Changed = if Identity ~= nil or RootPart:GetAttribute(ToolOwnerAttribute) ~= nil
+		then RootPart:GetAttribute(ToolOwnerAttribute) ~= Identity
+		else PreviousHandle ~= Handle
+	if Changed then
+		StopAction(RootPart:GetAttribute(ToolIdAttribute))
+		if PreviousHandle and not HasSynchronizedInput then
+			CancelToolRequest(Session, RootPart, PreviousHandle)
+			PredictedToolRequests[PreviousHandle] = nil
+		end
+		ClearToolState(RootPart)
+		RootPart:SetAttribute(ToolOwnerAttribute, Identity)
+	end
+	if Handle then
+		LastToolHandles[Session] = Handle
+	else
+		LastToolHandles[Session] = nil
+	end
+
 	local Now = if HasSynchronizedInput then time() else Workspace:GetServerTimeNow()
 	local RawActiveSlot = RootPart:GetAttribute(ToolSlotAttribute)
 	local RawActiveId = RootPart:GetAttribute(ToolIdAttribute)
@@ -469,6 +488,11 @@ local function PushTools(
 		local LegacySignal = if Tool then Tool:FindFirstChild(LegacyToolAnimationName) else nil
 		if LegacySignal and not LegacySignal:IsA("StringValue") then
 			LegacySignal = nil
+		end
+		if LegacySignal and Tool and not HasSynchronizedInput then
+			-- Classic tools append same-named command objects. Consume them
+			-- outside simulation so the next command cannot be masked by this one.
+			PendingLegacyToolSignals[LegacySignal] = Tool
 		end
 		local SynchronizedState = if HasSynchronizedInput then Handle:GetAttribute("State") else nil
 		local SynchronizedRequest = if type(SynchronizedState) == "string"
@@ -628,7 +652,12 @@ local function PushTools(
 						if ActiveId ~= Id then
 							StopAction(ActiveId)
 						end
-						local ExistingTrack = if Processed == nil then LiveTrack else nil
+						-- A newly consumed command is a playback edge even when its
+						-- asset matches the action already playing. Only an initial
+						-- sequenced observation may adopt an existing replicated track.
+						local ExistingTrack = if Processed == nil and not IsRequestEdge
+							then LiveTrack
+							else nil
 						if not ExistingTrack or not ExistingTrack.IsPlaying then
 							local DidStart = TrackDriver.Restart(Animator, {
 								Id = Id,
@@ -845,7 +874,7 @@ local function StepSession(Session: CharacterBinder.Session)
 	end
 
 	for _, Info in SlotInfo do
-		if DirectionalEnabled and (Info.Slot == "walk" or Info.Slot == "run") then
+		if UseDirectional and (Info.Slot == "walk" or Info.Slot == "run") then
 			continue
 		end
 		local Ids = Catalog.SlotIds[Info.Slot]
@@ -883,7 +912,7 @@ local function StepSession(Session: CharacterBinder.Session)
 			else nil
 		for Index, Entry in Catalog.Directional do
 			local Weight = if UseDirectional then DirectionalWeights[Index] or 0 else 0
-			if Weight <= Profile.BlendEpsilon then
+			if Weight <= Profile.BlendEpsilon and (UseDirectional or not IndexById[Entry.Id]) then
 				Push(
 					Entry.Id,
 					0,
@@ -1084,6 +1113,12 @@ local function ReportStepErrors()
 end
 
 local function AfterSimulation()
+	for Signal, Tool in PendingLegacyToolSignals do
+		PendingLegacyToolSignals[Signal] = nil
+		if Signal.Parent == Tool then
+			Signal:Destroy()
+		end
+	end
 	CorrectPendingToolPhases()
 	ReportStepErrors()
 end
