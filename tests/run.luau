@@ -1,7 +1,5 @@
 local Suites = {
-	require("./sword_compatibility_lune"),
-	require("./tool_rollback_regressions_lune"),
-	require("./tool_identity_lune"),
+	require("./locomotion_boundary_lune"),
 	require("./numerical_regressions_lune"),
 	require("./directional_fallback_lune"),
 	require("./rig_profile_lune"),

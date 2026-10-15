@@ -2,7 +2,6 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
 
 local Root = ReplicatedStorage:WaitForChild("AnimBlend")
 local CharacterBinder = require(Root:WaitForChild("CharacterBinder"))
@@ -151,49 +150,6 @@ local EmoteSlotAttribute = "AnimBlendEmoteSlot"
 local EmoteIdAttribute = "AnimBlendEmoteId"
 local EmoteStartAttribute = "AnimBlendEmoteStartedAt"
 local EmoteEndAttribute = "AnimBlendEmoteEndsAt"
-local ToolIdentityAttribute = "AnimBlendToolIdentity"
-local ToolOwnerAttribute = "AnimBlendToolOwner"
-local ToolSlotAttribute = "AnimBlendToolSlot"
-local ToolIdAttribute = "AnimBlendToolId"
-local ToolStartAttribute = "AnimBlendToolStartedAt"
-local ToolEndAttribute = "AnimBlendToolEndsAt"
-local ToolSequenceAttribute = "ToolAnimationSequence"
-local ToolStartedAttribute = "ToolAnimationStartedAt"
-local ToolInputContextAttribute = "ToolAnimationInputContext"
-local ToolInputActionAttribute = "ToolAnimationInputAction"
-local ToolCancelledSequenceAttribute = "AnimBlendToolCancelledSequence"
-local ToolCancelledIdAttribute = "AnimBlendToolCancelledId"
-local LegacyToolAnimationName = "toolanim"
-
-type ToolRequest = {
-	Sequence: number,
-	Slot: string,
-	Id: string,
-	StartedAt: number,
-}
-
-type ToolPrediction = {
-	Signal: Instance,
-	BaseSequence: number,
-	Slot: string,
-	Id: string,
-	StartedAt: number,
-}
-
-local ProcessedToolRequests: { [Instance]: ToolRequest } = setmetatable({}, { __mode = "k" }) :: any
-local PredictedToolRequests: { [Instance]: ToolPrediction } = setmetatable({}, { __mode = "k" }) :: any
-local LastToolStates: { [Instance]: string } = setmetatable({}, { __mode = "k" }) :: any
-local CancelledToolHandles: { [CharacterBinder.Session]: Instance } = setmetatable(
-	{},
-	{ __mode = "k" }
-) :: any
-local LastLegacyToolSignals: { [Instance]: Instance } = setmetatable({}, { __mode = "k" }) :: any
-local PendingLegacyToolSignals: { [Instance]: Instance } = setmetatable({}, { __mode = "k" }) :: any
-local LastToolHandles: { [any]: Instance } = setmetatable({}, { __mode = "k" }) :: any
-local PendingToolPhases: { [Animator]: { Id: string, StartedAt: number } } = setmetatable(
-	{},
-	{ __mode = "k" }
-) :: any
 local StockFade = 0.1
 local CycleAttributeList = {
 	CycleAttributes.idle,
@@ -275,7 +231,6 @@ local function JumpElapsed(
 end
 
 local ClearEmoteState: (BasePart) -> ()
-local ClearToolState: (BasePart) -> ()
 local EventBucket: (CharacterBinder.Session) -> number
 local ReadEmoteEvent: (CharacterBinder.Session, BasePart) -> string?
 local ChooseEmote: (CharacterBinder.Session, string, number) -> (string?, string?)
@@ -370,399 +325,15 @@ local function PushEmotes(Session: CharacterBinder.Session, ActiveSlot: string?,
 	end
 end
 
-local function CancelToolRequest(
-	Session: CharacterBinder.Session,
-	RootPart: BasePart,
-	Handle: Instance?
-)
-	if not Handle then
-		return
-	end
-	local Request = ProcessedToolRequests[Handle]
-	if not Request then
-		return
-	end
-	CancelledToolHandles[Session] = Handle
-	RootPart:SetAttribute(ToolCancelledSequenceAttribute, Request.Sequence)
-	RootPart:SetAttribute(ToolCancelledIdAttribute, Request.Id)
-end
-
-local function IsToolRequestCancelled(
-	Session: CharacterBinder.Session,
-	RootPart: BasePart,
-	Handle: Instance,
-	Request: ToolRequest
-): boolean
-	return CancelledToolHandles[Session] == Handle
-		and RootPart:GetAttribute(ToolCancelledSequenceAttribute) == Request.Sequence
-		and RootPart:GetAttribute(ToolCancelledIdAttribute) == Request.Id
-end
-
-local function ClearToolCancellation(Session: CharacterBinder.Session, RootPart: BasePart)
-	CancelledToolHandles[Session] = nil
-	RootPart:SetAttribute(ToolCancelledSequenceAttribute, nil)
-	RootPart:SetAttribute(ToolCancelledIdAttribute, nil)
-end
-
-local function PushTools(
-	Session: CharacterBinder.Session,
-	RootPart: BasePart,
-	Animator: Animator,
-	Handle: Instance?,
-	Bucket: number,
-	StepTracks: TrackDriver.StepTracks
-)
-	local function StopAction(Id: any)
-		if type(Id) ~= "string" then
-			return
-		end
-		local Track = TrackDriver.Find(Animator, Id, StepTracks)
-		if Track and Track.IsPlaying then
-			Track:Stop(0)
-		end
-	end
-
-	local HasSynchronizedInput = false
-	if Handle then
-		local ContextName = Handle:GetAttribute(ToolInputContextAttribute)
-		local ActionName = Handle:GetAttribute(ToolInputActionAttribute)
-		HasSynchronizedInput = type(ContextName) == "string" and type(ActionName) == "string"
-	end
-
-	-- The server assigns immutable handle identities outside simulation. The
-	-- active owner belongs to the rollback snapshot, not the local handle cache.
-	-- An unidentified tool cannot inherit the previous tool's action. Release
-	-- that action while leaving the new synchronized input unconsumed.
-	local RawIdentity = if Handle then Handle:GetAttribute(ToolIdentityAttribute) else nil
-	local Identity = if type(RawIdentity) == "string" and RawIdentity ~= ""
-		then RawIdentity
-		else nil
-	if HasSynchronizedInput and Identity == nil then
-		Handle = nil
-	end
-	local PreviousHandle = LastToolHandles[Session]
-	local Changed = if Identity ~= nil or RootPart:GetAttribute(ToolOwnerAttribute) ~= nil
-		then RootPart:GetAttribute(ToolOwnerAttribute) ~= Identity
-		else PreviousHandle ~= Handle
-	if Changed then
-		StopAction(RootPart:GetAttribute(ToolIdAttribute))
-		if PreviousHandle and not HasSynchronizedInput then
-			CancelToolRequest(Session, RootPart, PreviousHandle)
-			PredictedToolRequests[PreviousHandle] = nil
-		end
-		ClearToolState(RootPart)
-		RootPart:SetAttribute(ToolOwnerAttribute, Identity)
-	end
-	if Handle then
-		LastToolHandles[Session] = Handle
-	else
-		LastToolHandles[Session] = nil
-	end
-
-	local Now = if HasSynchronizedInput then time() else Workspace:GetServerTimeNow()
-	local RawActiveSlot = RootPart:GetAttribute(ToolSlotAttribute)
-	local RawActiveId = RootPart:GetAttribute(ToolIdAttribute)
-	local RawStartedAt = RootPart:GetAttribute(ToolStartAttribute)
-	local RawEnds = RootPart:GetAttribute(ToolEndAttribute)
-	local ActiveSlot: string? = if type(RawActiveSlot) == "string" then RawActiveSlot else nil
-	local ActiveId: string? = if type(RawActiveId) == "string" then RawActiveId else nil
-	local StartedAt: number? = if type(RawStartedAt) == "number" then RawStartedAt else nil
-	local Ends: number? = if type(RawEnds) == "number" then RawEnds else nil
-	if
-		type(ActiveSlot) ~= "string"
-		or type(ActiveId) ~= "string"
-		or type(StartedAt) ~= "number"
-		or Ends == nil
-	then
-		ActiveSlot, ActiveId, StartedAt, Ends = nil, nil, nil, nil
-	end
-
-	if not Handle or (ActiveSlot and Ends ~= nil and Now >= Ends) then
-		StopAction(ActiveId)
-		ClearToolState(RootPart)
-		ActiveSlot, ActiveId, StartedAt, Ends = nil, nil, nil, nil
-	end
-
-	if Handle then
-		local Tool = Handle.Parent
-		local LegacySignal = if Tool then Tool:FindFirstChild(LegacyToolAnimationName) else nil
-		if LegacySignal and not LegacySignal:IsA("StringValue") then
-			LegacySignal = nil
-		end
-		if LegacySignal and Tool and not HasSynchronizedInput then
-			-- Classic tools append same-named command objects. Consume them
-			-- outside simulation so the next command cannot be masked by this one.
-			PendingLegacyToolSignals[LegacySignal] = Tool
-		end
-		local SynchronizedState = if HasSynchronizedInput then Handle:GetAttribute("State") else nil
-		local SynchronizedRequest = if type(SynchronizedState) == "string"
-			then StockCatalog.ToolSlotByState[SynchronizedState]
-			else nil
-		local IsSynchronizedEdge = SynchronizedRequest ~= nil and SynchronizedRequest ~= "toolnone"
-		if IsSynchronizedEdge then
-			Handle:SetAttribute("State", "None")
-		end
-
-		local ReplicatedSequence = Handle:GetAttribute(ToolSequenceAttribute)
-		local IsNewLegacyEdge = not HasSynchronizedInput
-			and LegacySignal ~= nil
-			and LastLegacyToolSignals[Handle] ~= LegacySignal
-		local Prediction = if HasSynchronizedInput then nil else PredictedToolRequests[Handle]
-		if HasSynchronizedInput then
-			PredictedToolRequests[Handle] = nil
-		end
-		if Prediction and Now >= Prediction.StartedAt + StockCatalog.ToolDuration then
-			PredictedToolRequests[Handle] = nil
-			Prediction = nil
-		end
-
-		local HoldPrediction = false
-		if Prediction and not IsNewLegacyEdge then
-			if
-				type(ReplicatedSequence) == "number"
-				and ReplicatedSequence > Prediction.BaseSequence
-			then
-				local CommittedState = Handle:GetAttribute("State")
-				local CommittedSlot = if type(CommittedState) == "string"
-					then StockCatalog.ToolSlotByState[CommittedState]
-					else nil
-				if CommittedSlot == Prediction.Slot then
-					ProcessedToolRequests[Handle] = {
-						Sequence = ReplicatedSequence,
-						Slot = Prediction.Slot,
-						Id = Prediction.Id,
-						StartedAt = Prediction.StartedAt,
-					}
-					PredictedToolRequests[Handle] = nil
-					Prediction = nil
-				elseif LegacySignal == Prediction.Signal then
-					Prediction.BaseSequence = ReplicatedSequence
-					HoldPrediction = true
-				else
-					PredictedToolRequests[Handle] = nil
-					Prediction = nil
-				end
-			else
-				HoldPrediction = true
-			end
-		end
-
-		if HoldPrediction and Prediction then
-			ActiveSlot = Prediction.Slot
-			ActiveId = Prediction.Id
-			StartedAt = Prediction.StartedAt
-			Ends = Prediction.StartedAt + StockCatalog.ToolDuration
-			RootPart:SetAttribute(ToolSlotAttribute, ActiveSlot)
-			RootPart:SetAttribute(ToolIdAttribute, ActiveId)
-			RootPart:SetAttribute(ToolStartAttribute, StartedAt)
-			RootPart:SetAttribute(ToolEndAttribute, Ends)
-		end
-
-		local RequestSequence: number? = if HasSynchronizedInput or IsNewLegacyEdge
-			then nil
-			elseif type(ReplicatedSequence) == "number" then ReplicatedSequence
-			else nil
-		local HasSequence = type(RequestSequence) == "number"
-		local State = if HasSynchronizedInput
-			then SynchronizedState
-			elseif IsNewLegacyEdge then (LegacySignal :: StringValue).Value
-			elseif HasSequence then Handle:GetAttribute("State")
-			elseif LegacySignal then (LegacySignal :: StringValue).Value
-			else Handle:GetAttribute("State")
-		local Requested = if type(State) == "string"
-			then StockCatalog.ToolSlotByState[State]
-			else nil
-		if not Requested or Requested == "toolnone" then
-			LastToolStates[Handle] = nil
-			if not LegacySignal then
-				LastLegacyToolSignals[Handle] = nil
-			end
-		end
-		if not HoldPrediction and Requested and Requested ~= "toolnone" then
-			local Ids = Session.Catalog.SlotIds[Requested]
-			local Id = if Ids then ChooseId(Session.Catalog, Requested, Ids, Bucket, 1) else nil
-			local IsLegacyEdge = not HasSynchronizedInput
-				and not HasSequence
-				and if LegacySignal
-					then LastLegacyToolSignals[Handle] ~= LegacySignal
-					else LastToolStates[Handle] ~= State
-			local IsRequestEdge = IsSynchronizedEdge or IsLegacyEdge
-			if IsLegacyEdge then
-				LastToolStates[Handle] = State :: string
-				if LegacySignal then
-					LastLegacyToolSignals[Handle] = LegacySignal
-				end
-			end
-			local Processed = ProcessedToolRequests[Handle]
-			local IsSameSequence = Processed ~= nil
-				and HasSequence
-				and RequestSequence == Processed.Sequence
-			local IsExactConfirmation = Id ~= nil
-				and IsSameSequence
-				and Processed ~= nil
-				and Processed.Slot == Requested
-				and Processed.Id == Id
-			local IsStale = (not HasSequence and not IsRequestEdge)
-				or (Processed ~= nil and RequestSequence ~= nil and RequestSequence < Processed.Sequence)
-				or (IsSameSequence and not IsExactConfirmation)
-			if not IsStale then
-				if Id then
-					local LiveTrack = TrackDriver.Find(Animator, Id, StepTracks)
-					local IsConfirmation = IsExactConfirmation
-					local KnownEnds = if IsConfirmation
-						then Processed.StartedAt + StockCatalog.ToolDuration
-						else nil
-					if
-						IsConfirmation
-						and not IsToolRequestCancelled(
-							Session,
-							RootPart,
-							Handle,
-							Processed :: ToolRequest
-						)
-						and Now < (KnownEnds :: number)
-					then
-						ActiveSlot, ActiveId, StartedAt, Ends =
-							Requested, Id, Processed.StartedAt, KnownEnds
-						RootPart:SetAttribute(ToolSlotAttribute, ActiveSlot)
-						RootPart:SetAttribute(ToolIdAttribute, ActiveId)
-						RootPart:SetAttribute(ToolStartAttribute, StartedAt)
-						RootPart:SetAttribute(ToolEndAttribute, Ends)
-						if not LiveTrack or not LiveTrack.IsPlaying then
-							local Restored = TrackDriver.Restart(Animator, {
-								Id = Id,
-								Weight = 1,
-								Rate = 1,
-								Fade = 0,
-								Looped = false,
-								Sustain = false,
-								Priority = Enum.AnimationPriority.Action,
-								CycleAttribute = nil,
-								Cycle = nil,
-							}, StepTracks)
-							if Restored then
-								PendingToolPhases[Animator] = {
-									Id = Id,
-									StartedAt = Processed.StartedAt,
-								}
-							end
-						end
-					elseif not IsConfirmation then
-						ClearToolCancellation(Session, RootPart)
-						if ActiveId ~= Id then
-							StopAction(ActiveId)
-						end
-						-- A newly consumed command is a playback edge even when its
-						-- asset matches the action already playing. Only an initial
-						-- sequenced observation may adopt an existing replicated track.
-						local ExistingTrack = if Processed == nil and not IsRequestEdge
-							then LiveTrack
-							else nil
-						if not ExistingTrack or not ExistingTrack.IsPlaying then
-							local DidStart = TrackDriver.Restart(Animator, {
-								Id = Id,
-								Weight = 1,
-								Rate = 1,
-								Fade = 0,
-								Looped = false,
-								Sustain = false,
-								Priority = Enum.AnimationPriority.Action,
-								CycleAttribute = nil,
-								Cycle = nil,
-							}, StepTracks)
-							ExistingTrack = if DidStart
-								then TrackDriver.Find(Animator, Id, StepTracks)
-								else nil
-						end
-						if ExistingTrack then
-							local Elapsed =
-								math.clamp(ExistingTrack.TimePosition, 0, StockCatalog.ToolDuration)
-							local CommittedStart = Handle:GetAttribute(ToolStartedAttribute)
-							local ActionStart = if HasSequence
-									and type(CommittedStart) == "number"
-								then CommittedStart
-								else Now - Elapsed
-							ActiveSlot, ActiveId, StartedAt, Ends =
-								Requested, Id, ActionStart, ActionStart + StockCatalog.ToolDuration
-							RootPart:SetAttribute(ToolSlotAttribute, ActiveSlot)
-							RootPart:SetAttribute(ToolIdAttribute, ActiveId)
-							RootPart:SetAttribute(ToolStartAttribute, StartedAt)
-							RootPart:SetAttribute(ToolEndAttribute, Ends)
-							if HasSequence then
-								ProcessedToolRequests[Handle] = {
-									Sequence = RequestSequence :: number,
-									Slot = Requested,
-									Id = Id,
-									StartedAt = ActionStart,
-								}
-							elseif LegacySignal and not HasSynchronizedInput then
-								PredictedToolRequests[Handle] = {
-									Signal = LegacySignal,
-									BaseSequence = if type(ReplicatedSequence) == "number"
-										then ReplicatedSequence
-										else -1,
-									Slot = Requested,
-									Id = Id,
-									StartedAt = ActionStart,
-								}
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-
-	local ToolIdleIds = Session.Catalog.SlotIds.toolnone
-	if ToolIdleIds then
-		local Weight = if Handle and not ActiveId then 1 else 0
-		local Chosen = ChooseId(Session.Catalog, "toolnone", ToolIdleIds, Bucket, Weight)
-		for _, Id in ToolIdleIds do
-			Push(
-				Id,
-				if Id == Chosen then Weight else 0,
-				1,
-				StockFade,
-				true,
-				false,
-				Enum.AnimationPriority.Idle,
-				nil,
-				nil
-			)
-		end
-	end
-	if ActiveId then
-		TrackDriver.Collapse(Animator, ActiveId, StepTracks)
-	end
-end
-
-local function CorrectPendingToolPhases()
-	for Animator, Pending in PendingToolPhases do
-		PendingToolPhases[Animator] = nil
-		local ActiveTrack = TrackDriver.Find(Animator, Pending.Id)
-		if ActiveTrack and ActiveTrack.IsPlaying then
-			ActiveTrack.TimePosition = math.clamp(
-				Workspace:GetServerTimeNow() - Pending.StartedAt,
-				0,
-				StockCatalog.ToolDuration
-			)
-		end
-	end
-end
-
 local function ReleaseManagedTracks(
 	Session: CharacterBinder.Session,
 	RootPart: BasePart,
 	Animator: Animator,
 	StepTracks: TrackDriver.StepTracks
 )
-	local Handle = LastToolHandles[Session]
-	CancelToolRequest(Session, RootPart, Handle)
-	PendingToolPhases[Animator] = nil
 	ClearJumpState(RootPart)
 	ClearSustainState(RootPart)
 	ClearEmoteState(RootPart)
-	ClearToolState(RootPart)
 	if RootPart:GetAttribute(SwimActiveAttribute) ~= nil then
 		RootPart:SetAttribute(SwimActiveAttribute, nil)
 	end
@@ -842,8 +413,6 @@ local function StepSession(Session: CharacterBinder.Session)
 	local AnyField: any = Field
 	local AnyProfile: any = Profile
 	local Bucket = CurrentBucket(Session)
-	local Tool = FindWhichIsA(Session.Character, "Tool")
-	local ToolHandle = if Tool then Tool:FindFirstChild("Handle") else nil
 	local DirectionalEnabled = Catalog.HasDirectional and Profile.Name == "R15"
 	local DirectionalRate: number? = nil
 	local LocomotionCycle = TrackDriver.VisibleCycle(
@@ -946,8 +515,6 @@ local function StepSession(Session: CharacterBinder.Session)
 
 	PushEmotes(Session, EmoteSlot, EmoteId)
 
-	PushTools(Session, RootPart, Animator, ToolHandle, Bucket, StepTracks)
-
 	TrackDriver.Apply(Animator, Buffer, Count, RootPart, StepTracks)
 end
 
@@ -956,13 +523,6 @@ ClearEmoteState = function(RootPart: BasePart)
 	RootPart:SetAttribute(EmoteIdAttribute, nil)
 	RootPart:SetAttribute(EmoteStartAttribute, nil)
 	RootPart:SetAttribute(EmoteEndAttribute, nil)
-end
-
-ClearToolState = function(RootPart: BasePart)
-	RootPart:SetAttribute(ToolSlotAttribute, nil)
-	RootPart:SetAttribute(ToolIdAttribute, nil)
-	RootPart:SetAttribute(ToolStartAttribute, nil)
-	RootPart:SetAttribute(ToolEndAttribute, nil)
 end
 
 EventBucket = function(Session: CharacterBinder.Session): number
@@ -1113,13 +673,6 @@ local function ReportStepErrors()
 end
 
 local function AfterSimulation()
-	for Signal, Tool in PendingLegacyToolSignals do
-		PendingLegacyToolSignals[Signal] = nil
-		if Signal.Parent == Tool then
-			Signal:Destroy()
-		end
-	end
-	CorrectPendingToolPhases()
 	ReportStepErrors()
 end
 

@@ -123,6 +123,13 @@ function TrackDriver.CacheCounts(): (number, number)
 	return Animations, Leases
 end
 
+-- Core catalog tracks include stock Animate and replicated locomotion tracks.
+-- Do not identify external action tracks by asset ID alone. Locally created
+-- tracks remain ours, including any explicit priority chosen for those tracks.
+local function CanManage(Track: AnimationTrack): boolean
+	return ManagedTracks[Track] == true or Track.Priority == Enum.AnimationPriority.Core
+end
+
 local function TrackKey(Track: AnimationTrack): string?
 	local Animation = Track.Animation
 	return if Animation then AssetKey(Animation.AnimationId) else nil
@@ -138,7 +145,7 @@ function TrackDriver.BeginStep(Animator: Animator): StepTracks
 	for _, Track in Tracks do
 		Seen[Track] = true
 		local Key = TrackKey(Track)
-		if Key and not ByKey[Key] then
+		if Key and CanManage(Track) and not ByKey[Key] then
 			ByKey[Key] = Track
 		end
 	end
@@ -205,29 +212,15 @@ function TrackDriver.IsOwned(Animator: Animator): boolean
 	return Animator:GetAttribute(OwnedAttribute) == true
 end
 
+-- Keep the shared Animator: weapon and other controllers may already own tracks.
+-- The marker identifies readiness for locomotion, not exclusive Animator ownership.
 function TrackDriver.TakeOwnership(Humanoid: Humanoid): Animator?
-	local Existing = Humanoid:FindFirstChildOfClass("Animator")
-	if IsClient then
-		return Existing
+	local Animator = TrackDriver.EnsureAnimator(Humanoid)
+	if Animator and not IsClient then
+		Animator:SetAttribute(OwnedAttribute, true)
+		Animator.PreferLodEnabled = AnimatorPreferLodEnabled
 	end
-	if Existing and TrackDriver.IsOwned(Existing) then
-		Existing.PreferLodEnabled = AnimatorPreferLodEnabled
-		return Existing
-	end
-
-	local Created = Instance.new("Animator")
-	Created:SetAttribute(OwnedAttribute, true)
-	Created.PreferLodEnabled = AnimatorPreferLodEnabled
-
-	if Existing then
-		for _, Track in Existing:GetPlayingAnimationTracks() do
-			pcall(Track.Stop, Track, 0)
-		end
-		Existing:Destroy()
-	end
-
-	Created.Parent = Humanoid
-	return Created
+	return Animator
 end
 
 function TrackDriver.PrepareAnimator(Humanoid: Humanoid): Animator?
@@ -248,18 +241,18 @@ function TrackDriver.Find(
 	Step: StepTracks?
 ): AnimationTrack?
 	local Direct = DirectTrack(Animator, AnimationId)
-	if Direct then
+	if Direct and CanManage(Direct) then
 		return Direct
 	end
 
 	local Key = AssetKey(AnimationId)
 	if Step and Step.Animator == Animator then
 		local Indexed = Step.ByKey[Key]
-		return if Indexed and Indexed.IsPlaying then Indexed else nil
+		return if Indexed and Indexed.IsPlaying and CanManage(Indexed) then Indexed else nil
 	end
 	for _, Track in Animator:GetPlayingAnimationTracks() do
 		local Anim = Track.Animation
-		if Anim and AssetKey(Anim.AnimationId) == Key then
+		if Anim and CanManage(Track) and AssetKey(Anim.AnimationId) == Key then
 			return Track
 		end
 	end
@@ -279,6 +272,7 @@ function TrackDriver.Resolve(
 	if not Ok or not Loaded then
 		return nil
 	end
+	ManagedTracks[Loaded] = true
 	Loaded.Priority = Priority
 	return Loaded
 end
@@ -295,7 +289,7 @@ function TrackDriver.Collapse(
 		else Animator:GetPlayingAnimationTracks()
 	for _, Track in Tracks do
 		local Anim = Track.Animation
-		if Anim and Track.IsPlaying and AssetKey(Anim.AnimationId) == Key then
+		if Anim and CanManage(Track) and Track.IsPlaying and AssetKey(Anim.AnimationId) == Key then
 			if not Keep or Track.TimePosition > (Keep :: AnimationTrack).TimePosition then
 				Keep = Track
 			end
@@ -306,7 +300,13 @@ function TrackDriver.Collapse(
 	end
 	for _, Track in Tracks do
 		local Anim = Track.Animation
-		if Track ~= Keep and Anim and Track.IsPlaying and AssetKey(Anim.AnimationId) == Key then
+		if
+			Track ~= Keep
+			and CanManage(Track)
+			and Anim
+			and Track.IsPlaying
+			and AssetKey(Anim.AnimationId) == Key
+		then
 			Track:Stop(0)
 		end
 	end
@@ -340,6 +340,7 @@ local function ResolvePrepared(
 	if not Ok or not Loaded then
 		return nil
 	end
+	ManagedTracks[Loaded] = true
 	Loaded.Priority = Priority
 	return Loaded
 end
@@ -572,7 +573,12 @@ function TrackDriver.StopAll(Animator: Animator, Ids: { string }, Fade: number)
 
 	for _, Track in Animator:GetPlayingAnimationTracks() do
 		local Anim = Track.Animation
-		if Anim and Track.IsPlaying and Managed[AssetKey(Anim.AnimationId)] then
+		if
+			Anim
+			and CanManage(Track)
+			and Track.IsPlaying
+			and Managed[AssetKey(Anim.AnimationId)]
+		then
 			Track:Stop(Fade)
 		end
 	end

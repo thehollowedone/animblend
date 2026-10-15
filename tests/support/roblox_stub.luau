@@ -5,7 +5,6 @@ local Stub = {}
 
 local ServerTime = 1000
 local SimulationTime = 1000
-local ToolIdentitySequence = 0
 
 local function Signal()
 	return {
@@ -483,9 +482,7 @@ function Stub.Tool(Name: string, WithHandle: boolean?)
 		end
 	end
 	if WithHandle ~= false then
-		ToolIdentitySequence += 1
 		local Handle = Stub.NewInstance("Part", "Handle")
-		Handle:SetAttribute("AnimBlendToolIdentity", "stub-tool-" .. ToolIdentitySequence)
 		Tool:SetChild("Handle", Handle)
 	end
 	return Tool

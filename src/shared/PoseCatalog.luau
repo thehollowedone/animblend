@@ -52,7 +52,6 @@ local SustainSlots: { [string]: boolean } = {
 }
 
 local DefaultWeight = 1
-local StockWeight = 10
 local DefaultWalkId = "rbxassetid://180426354"
 local Limits = PoseCatalog.Limits
 
@@ -426,42 +425,7 @@ local function Finalize(
 	return Catalog
 end
 
-local function ApplyStockToolIds(Slots: { [string]: { Variant } }, RigName: string)
-	local TargetRig = if RigName == "R6" then "R6" else "R15"
-	local OtherRig = if TargetRig == "R6" then "R15" else "R6"
-	local TargetIds = StockCatalog.ToolIdsByRig[TargetRig]
-	local OtherIds = StockCatalog.ToolIdsByRig[OtherRig]
-
-	for _, Slot in StockCatalog.ToolSlots do
-		local TargetId = TargetIds[Slot]
-		local OtherId = OtherIds[Slot]
-		local Variants = Slots[Slot]
-		if not Variants or #Variants == 0 then
-			Slots[Slot] = { { Id = TargetId, Weight = StockWeight } }
-			continue
-		end
-
-		local SeenTarget = false
-		for _, Entry in Variants do
-			if Entry.Id == TargetId then
-				SeenTarget = true
-			end
-		end
-		for Index = #Variants, 1, -1 do
-			local Entry = Variants[Index]
-			if Entry.Id == OtherId then
-				if SeenTarget then
-					table.remove(Variants, Index)
-				else
-					Entry.Id = TargetId
-					SeenTarget = true
-				end
-			end
-		end
-	end
-end
-
-function PoseCatalog.Build(Animate: Instance?, RigName: string?): Catalog
+function PoseCatalog.Build(Animate: Instance?, _RigName: string?): Catalog
 	local Slots: { [string]: { Variant } } = {}
 	local Directional: { DirectionalVariant } = {}
 	if Animate then
@@ -476,9 +440,6 @@ function PoseCatalog.Build(Animate: Instance?, RigName: string?): Catalog
 			end
 		end
 		CollectDirectional(Animate, Directional, {})
-		if RigName then
-			ApplyStockToolIds(Slots, RigName)
-		end
 	end
 	return Finalize(Slots, Directional)
 end

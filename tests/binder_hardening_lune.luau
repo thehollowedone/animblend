@@ -75,7 +75,7 @@ do
 	ReplacementHumanoid:SetAnimator(Foreign)
 	Modules.FlushDeferred()
 	local Reclaimed = ReplacementHumanoid.Animator
-	T:True("replacement Humanoid watches and reclaims a foreign Animator", Reclaimed ~= Foreign)
+	T:True("replacement Humanoid preserves the shared Animator", Reclaimed == Foreign)
 	T:True("reclaimed replacement Animator is owned", Modules.TrackDriver.IsOwned(Reclaimed))
 
 	local RetiredForeign = Stub.Animator()

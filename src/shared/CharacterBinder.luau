@@ -1,6 +1,5 @@
 --!strict
 
-local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -49,9 +48,6 @@ local ByCharacter: { [Model]: Session } = {}
 local PlayerCharacter: { [Player]: Model } = {}
 local PendingBinds: { [Model]: boolean } = {}
 local CatalogValueName = "AnimBlendCatalog"
-local ToolIdentityAttribute = "AnimBlendToolIdentity"
-local ToolIdentities: { [Instance]: string } = setmetatable({}, { __mode = "k" }) :: any
-
 CharacterBinder.Sessions = Sessions
 
 local ReleaseCharacter: (Model) -> ()
@@ -59,26 +55,6 @@ local AttachAnimate: (Session, Instance?) -> ()
 local ResetTracks: (Session, number?) -> ()
 local SetSessionOwning: (Session, boolean) -> ()
 local SetupEmotes: (Session) -> ()
-
--- Identity belongs to the actual Handle, not its name or a copied attribute.
--- Assign only during server lifecycle events, never during simulation replay.
-local function AssignToolIdentity(Descendant: Instance)
-	if Descendant.Name ~= "Handle" or not Descendant:IsA("BasePart") then
-		return
-	end
-	local Tool = Descendant.Parent
-	if not Tool or not Tool:IsA("Tool") then
-		return
-	end
-	local Identity = ToolIdentities[Descendant]
-	if not Identity then
-		Identity = HttpService:GenerateGUID(false)
-		ToolIdentities[Descendant] = Identity
-	end
-	if Descendant:GetAttribute(ToolIdentityAttribute) ~= Identity then
-		Descendant:SetAttribute(ToolIdentityAttribute, Identity)
-	end
-end
 
 local function FindAnimate(Character: Model): Instance?
 	return Character:FindFirstChild("Animate")
@@ -624,19 +600,6 @@ local function ClaimCharacter(Character: Model): boolean
 	end
 
 	Insert(Session)
-	if IsServer then
-		table.insert(
-			Conns,
-			Character.DescendantAdded:Connect(function(Descendant)
-				if ByCharacter[Character] == Session then
-					AssignToolIdentity(Descendant)
-				end
-			end)
-		)
-		for _, Descendant in Character:GetDescendants() do
-			AssignToolIdentity(Descendant)
-		end
-	end
 	BindHumanoid(Session, Humanoid, false)
 	PendingBinds[Character] = nil
 	AttachAnimate(Session, FindAnimate(Character))

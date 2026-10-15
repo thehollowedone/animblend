@@ -163,58 +163,6 @@ end
 
 do
 	local Modules = Stub.Build()
-	local Animator = Stub.Animator()
-	local Humanoid = Stub.Humanoid(Animator)
-	local SlashId = "rbxassetid://rollback-tool-slash"
-	local Catalog = Stub.Catalog(Modules.PoseCatalog, {
-		idle = { IdleId },
-		walk = { WalkId },
-		toolnone = { "rbxassetid://rollback-tool-idle" },
-		toolslash = { SlashId },
-	})
-	Modules.TrackDriver.Prepare(Catalog.AllIds)
-	local Profile = Modules.RigProfile.Resolve("R15", {
-		HasDistinctRun = Catalog.HasDistinctRun,
-		HasSwimSlots = Catalog.HasSwimSlots,
-	})
-	local Session = Stub.Session(Humanoid, Profile, Catalog)
-	local Tool = Stub.Tool("RollbackSword")
-	local Handle = Tool:FindFirstChild("Handle")
-	Handle:SetAttribute("ToolAnimationSequence", 1)
-	Handle:SetAttribute("State", "Slash")
-	Session.Character:SetTool(Tool)
-	Step(Modules, Session, Animator, Humanoid, 0, 1)
-	T:Equal(
-		"tool request begins before cancellation",
-		Session.Root:GetAttribute("AnimBlendToolId"),
-		SlashId
-	)
-
-	Session.Character:SetTool(nil)
-	Step(Modules, Session, Animator, Humanoid, 0, 1)
-	Session.Character:SetTool(Tool)
-	Step(Modules, Session, Animator, Humanoid, 0, 1)
-	T:Equal(
-		"real unequip cancellation cannot resurrect the same confirmed sequence",
-		Session.Root:GetAttribute("AnimBlendToolId"),
-		nil
-	)
-
-	-- Server Authority rewinds predicted attributes, but ordinary Lua tables are
-	-- not rewound. Clearing the synchronized cancellation marker models the
-	-- replayed pre-unequip frame; the exact confirmation must become valid again.
-	Session.Root:SetAttribute("AnimBlendToolCancelledSequence", nil)
-	Session.Root:SetAttribute("AnimBlendToolCancelledId", nil)
-	Step(Modules, Session, Animator, Humanoid, 0, 1)
-	T:Equal(
-		"rollback-visible cancellation state allows a pre-unequip replay",
-		Session.Root:GetAttribute("AnimBlendToolId"),
-		SlashId
-	)
-end
-
-do
-	local Modules = Stub.Build()
 	local GoodAnimator, _, Good = NewWorld(Modules)
 	local BadAnimator, BadHumanoid, Bad = NewWorld(Modules)
 	BadHumanoid.GetState = function()

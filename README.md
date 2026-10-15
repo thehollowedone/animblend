@@ -1,6 +1,6 @@
 # AnimBlend
 
-R6/R15 animation controller for Roblox **Server Authority**. Replaces stock `Animate` without replacing its catalog format.
+R6/R15 locomotion blending controller for Roblox **Server Authority**. Replaces stock `Animate` without replacing its catalog format.
 
 ## Requirement
 
@@ -37,20 +37,43 @@ StarterPlayer
 ## Behavior
 
 - Stock/custom `Animate` catalogs, weighted variants, and runtime edits
-- R6 and R15 locomotion, tools, emotes, and action layers
+- R6 and R15 locomotion with existing stock-emote compatibility
 - R15 directional blending and stride-phase continuity
-- Roblox animation LOD and external action tracks
+- Roblox animation LOD and coexistence with externally owned action tracks
 
-Tools use `Handle.State` (`None`, `Slash`, `Lunge`). Synchronized tools may publish `ToolAnimationInputContext` and `ToolAnimationInputAction`; legacy `toolanim` remains supported.
+## Weapon animation boundary and migration
 
-The server assigns each equipped Handle an immutable `AnimBlendToolIdentity` outside simulation. AnimBlend records the current identity on the predicted character root, so rollback restores tool ownership together with the action. Clients wait for the identity before consuming synchronized requests. The identity is managed automatically; do not author or copy it as a tool configuration value.
+AnimBlend does not own weapon or combat animation. The weapon controller owns its
+hold and attack poses, inputs, timing, rollback state, and cleanup. Existing stock
+emote support remains available; this change does not remove PlayEmote or EmoteAction.
 
+Removed behavior and configuration:
 
-### Sword command compatibility
+- Legacy `toolanim` StringValues are neither read nor destroyed.
+- `Handle.State` commands and `ToolAnimationSequence` / `ToolAnimationStartedAt`
+  are no longer consumed.
+- `ToolAnimationInputContext` / `ToolAnimationInputAction` are no longer read.
+- `AnimBlendToolIdentity` is no longer assigned; `AnimBlendTool*` rollback state
+  is no longer written.
+- Automatic `toolnone`, `toolslash`, and `toollunge` poses, stock weapon IDs,
+  and the `FadeTool` rig override are removed.
 
-The [Linked Sword script discussed in this 2023 post](https://devforum.roblox.com/t/attempting-to-decipher-the-script-of-the-linked-sword-default-sword/2388604) emits a fresh `toolanim` value for each accepted attack. A second activation less than 0.2 seconds after the preceding one requests Lunge; otherwise it requests Slash. The lunge blocks further activation for about one second. AnimBlend preserves those producer decisions: each fresh command restarts its requested animation, including another Slash during the previous animation's 0.3-second window. Consumed legacy command objects are removed after simulation so they cannot hide later commands.
+Legacy gear relying on those hooks must provide its own hold/attack animation.
+Providence's sword at commit `c224698367c222cbe0747fe627581a5f411a8c37`
+already presents its poses through its own C0/Grip controller and does not depend
+on these hooks. An AnimationTrack-based weapon controller should use Action or
+higher priority and own those tracks separately.
 
-That historical script uses ordinary tool events and yields; it is not a Server Authority prediction implementation. Legacy `toolanim` support does not make its attacks, damage, movement, or cooldowns rollback-safe. For predicted combat, port the gameplay producer to synchronized input and rollback-managed state, then publish a one-step `Handle.State` command before AnimBlend's simulation priority. Configure both `ToolAnimationInputContext` and `ToolAnimationInputAction` on that Handle. AnimBlend consumes the command by resetting State to None. Keep click classification and cooldown ownership in the producer. A sequence-only replication update does not create a new synchronized command.
+AnimBlend keeps an existing shared Animator and leaves external Idle, Movement,
+and Action-priority tracks untouched, even when they share a catalog asset ID.
+For stock/replicated locomotion compatibility it can adopt Core-priority tracks
+whose IDs match its catalog. Do not use the same Core-priority catalog IDs for an
+independent controller; use a higher priority or the external-control handoff.
+Locally created AnimBlend tracks remain managed by AnimBlend.
+
+Deploy matching server and client modules together. The catalog uses named slots;
+older payloads containing tool slots are not accepted by this version. Validate
+replicated playback and handoff in Studio multiplayer before release.
 
 ## Controller handoff
 

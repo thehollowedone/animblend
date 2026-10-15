@@ -12,9 +12,6 @@ StockCatalog.Slots = {
 	"swim",
 	"swimidle",
 	"sit",
-	"toolnone",
-	"toolslash",
-	"toollunge",
 	"wave",
 	"point",
 	"dance",
@@ -24,33 +21,6 @@ StockCatalog.Slots = {
 	"laugh",
 	"cheer",
 }
-
-StockCatalog.ToolSlots = {
-	"toolnone",
-	"toolslash",
-	"toollunge",
-}
-
-local ToolSlotByState: { [string]: string } = {
-	None = "toolnone",
-	Slash = "toolslash",
-	Lunge = "toollunge",
-}
-StockCatalog.ToolSlotByState = ToolSlotByState
-
-local ToolIdsByRig: { [string]: { [string]: string } } = {
-	R6 = {
-		toolnone = "rbxassetid://182393478",
-		toolslash = "rbxassetid://129967390",
-		toollunge = "rbxassetid://129967478",
-	},
-	R15 = {
-		toolnone = "rbxassetid://507768375",
-		toolslash = "rbxassetid://522635514",
-		toollunge = "rbxassetid://522638767",
-	},
-}
-StockCatalog.ToolIdsByRig = ToolIdsByRig
 
 StockCatalog.EmoteSlots = {
 	"wave",
@@ -102,6 +72,5 @@ StockCatalog.R6DanceSlots = {
 
 StockCatalog.EmoteFireToggle = 16
 StockCatalog.EmoteInputAttribute = "AnimBlendEmoteInput"
-StockCatalog.ToolDuration = 0.3
 
 return StockCatalog
