@@ -24,6 +24,8 @@ StarterPlayer
     └── AnimBlendClient        <- src/client
 ```
 
+Deploy matching server and client modules together; older catalog payloads with tool slots are incompatible.
+
 ## Configuration
 
 | Setting | Purpose |
@@ -41,43 +43,16 @@ StarterPlayer
 - R15 directional blending and stride-phase continuity
 - Roblox animation LOD and coexistence with externally owned action tracks
 
-## Weapon animation boundary and migration
+## Tool animations
 
-AnimBlend does not own weapon or combat animation. The weapon controller owns its
-hold and attack poses, inputs, timing, rollback state, and cleanup. Existing stock
-emote support remains available; this change does not remove PlayEmote or EmoteAction.
-
-Removed behavior and configuration:
-
-- Legacy `toolanim` StringValues are neither read nor destroyed.
-- `Handle.State` commands and `ToolAnimationSequence` / `ToolAnimationStartedAt`
-  are no longer consumed.
-- `ToolAnimationInputContext` / `ToolAnimationInputAction` are no longer read.
-- `AnimBlendToolIdentity` is no longer assigned; `AnimBlendTool*` rollback state
-  is no longer written.
-- Automatic `toolnone`, `toolslash`, and `toollunge` poses, stock weapon IDs,
-  and the `FadeTool` rig override are removed.
-
-Legacy gear relying on those hooks must provide its own hold/attack animation.
-Providence's sword at commit `c224698367c222cbe0747fe627581a5f411a8c37`
-already presents its poses through its own C0/Grip controller and does not depend
-on these hooks. An AnimationTrack-based weapon controller should use Action or
-higher priority and own those tracks separately.
-
-AnimBlend keeps an existing shared Animator and leaves external Idle, Movement,
-and Action-priority tracks untouched, even when they share a catalog asset ID.
-For stock/replicated locomotion compatibility it can adopt Core-priority tracks
-whose IDs match its catalog. Do not use the same Core-priority catalog IDs for an
-independent controller; use a higher priority or the external-control handoff.
-Locally created AnimBlend tracks remain managed by AnimBlend.
-
-Deploy matching server and client modules together. The catalog uses named slots;
-older payloads containing tool slots are not accepted by this version. Validate
-replicated playback and handoff in Studio multiplayer before release.
+Create and play weapon hold and attack tracks in your tool controller at Action priority or higher.
+AnimBlend handles locomotion and leaves those independently owned tracks alone.
 
 ## Controller handoff
 
 Physics, ragdoll, unknown states, `PlatformStand`, and death release AnimBlend-managed tracks.
+
+Independent controllers should avoid Core-priority tracks with AnimBlend catalog IDs; use a higher priority or the handoff below.
 
 For controllers that retain a locomotion state:
 
